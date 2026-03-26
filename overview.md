@@ -300,11 +300,19 @@ No BSL, SSPL, or proprietary licenses. No commercial components required.
 
 ## Documents in This Repository
 
+### Architecture Papers (by layer)
+
+| Document | Layer | What it covers |
+|----------|-------|---------------|
+| **01-infrastructure.md** | Layer 1 | Bare metal → K8s (Metal3, Flatcar, Cilium, Ceph, GPU, KubeVirt) |
+| **02-platform.md** | Layer 2 | Multi-tenant cloud APIs (KCP, Identity, Cloud Operator, CLI, Console) — **demo lives here** |
+| **03-production.md** | Layer 3 | Productionization (billing, metering, monitoring, backup, day-2 ops) |
+
+### Other Documents
+
 | Document | What it is | Audience |
 |----------|-----------|----------|
 | **overview.md** (this file) | Simplified architecture overview | Everyone |
-| **01-compute-platform.md** | Paper 1: Compute platform architecture | Architects, evaluators |
-| **02-billing-metering.md** | Paper 2: Billing and metering add-on | Architects, evaluators |
 | **deployment.md** | Production deployment guide (20 phases) | Platform operators |
 | **demo.md** | Quick demo setup guide | Developers, demo presenters |
 | **deploy/** | 83 YAML manifests for all components | Platform operators |
