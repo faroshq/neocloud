@@ -1,0 +1,29 @@
+# =============================================================================
+# Console Configuration - ConfigMap
+# =============================================================================
+# Non-sensitive configuration for the web console. These values are injected
+# as environment variables into the web-console Deployment.
+#
+# Update these URLs to match your actual deployment domain before applying.
+#
+# Sensitive values (ZITADEL_CLIENT_ID, STRIPE_PUBLISHABLE_KEY) should be
+# stored in a Secret named "console-secrets" in the same namespace.
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: console-config
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: web-console
+    app.kubernetes.io/component: config
+    app.kubernetes.io/part-of: sovereign-cloud-platform
+data:
+  # The URL of the kcp API server that the console will communicate with
+  KCP_API_URL: "https://kcp.demo.example.com"
+
+  # The OIDC issuer URL for Zitadel authentication
+  ZITADEL_ISSUER: "https://auth.demo.example.com"
+
+  # The OpenMeter API URL for billing and usage metering
+  OPENMETER_API_URL: "https://billing.demo.example.com"

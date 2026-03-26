@@ -1,0 +1,179 @@
+# =============================================================================
+# PostgreSQL StatefulSet for Zitadel
+# =============================================================================
+#
+# A single-instance PostgreSQL 16 deployment used as the backing database for
+# Zitadel. Uses a StatefulSet for stable network identity and persistent
+# storage.
+#
+# For production, consider:
+#   - Running a PostgreSQL operator (e.g., CloudNativePG, Zalando, CrunchyData)
+#   - Multi-replica with streaming replication
+#   - Automated backups (WAL archiving, pg_basebackup)
+#   - Connection pooling (PgBouncer)
+#
+# Prerequisites:
+#   - Namespace "zitadel" exists (deploy/zitadel/namespace.yaml)
+#   - Secret "postgres-credentials" exists (deploy/zitadel/postgres-secret.yaml)
+#   - A StorageClass is available for dynamic PVC provisioning
+#
+# Apply with:
+#   kubectl apply -f deploy/zitadel/postgres.yaml
+# =============================================================================
+
+---
+# -----------------------------------------------------------------------------
+# StatefulSet
+# -----------------------------------------------------------------------------
+# StatefulSet is preferred over Deployment for databases because it provides:
+#   - Stable, predictable pod names (postgres-0, postgres-1, ...)
+#   - Ordered startup and shutdown
+#   - Stable persistent volume claims that survive pod rescheduling
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: zitadel
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: zitadel
+    app.kubernetes.io/component: database
+spec:
+  # serviceName: Must match the headless Service name below.
+  # This creates DNS records like postgres-0.postgres.zitadel.svc.cluster.local
+  serviceName: postgres
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/part-of: zitadel
+        app.kubernetes.io/component: database
+    spec:
+      # terminationGracePeriodSeconds: Give PostgreSQL enough time to perform
+      # a clean shutdown (checkpoint, WAL flush) before SIGKILL.
+      terminationGracePeriodSeconds: 60
+
+      containers:
+        - name: postgres
+          # image: Official PostgreSQL 16 image. Pin to a specific minor
+          # version in production (e.g., postgres:16.3) for reproducibility.
+          image: postgres:16
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: postgresql
+              containerPort: 5432
+              protocol: TCP
+
+          # envFrom: Load all keys from the credentials Secret as environment
+          # variables. PostgreSQL's entrypoint script reads POSTGRES_USER,
+          # POSTGRES_PASSWORD, and POSTGRES_DB to initialize the database.
+          envFrom:
+            - secretRef:
+                name: postgres-credentials
+
+          # volumeMounts: Mount the persistent volume at PostgreSQL's default
+          # data directory.
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+              # subPath: Use a subdirectory to avoid issues with lost+found
+              # on ext4 volumes, which would cause PostgreSQL to refuse to
+              # initialize.
+              subPath: pgdata
+
+          # resources: Adjust based on expected Zitadel load.
+          # Zitadel with < 1000 users typically needs < 1 CPU and 1Gi RAM
+          # for the database.
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+
+          # livenessProbe: Checks if PostgreSQL is accepting connections.
+          # If this fails, the pod is restarted.
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - zitadel
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # readinessProbe: Checks if PostgreSQL is ready to serve queries.
+          # The Service only routes traffic to ready pods.
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - zitadel
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+  # volumeClaimTemplates: Dynamically provisions a PersistentVolumeClaim
+  # for each pod in the StatefulSet. The PVC persists across pod restarts
+  # and rescheduling.
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+        labels:
+          app.kubernetes.io/name: postgres
+          app.kubernetes.io/part-of: zitadel
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            # storage: 10Gi is sufficient for Zitadel metadata.
+            # Zitadel stores user data, OIDC sessions, and audit logs.
+            # Monitor usage and expand as needed.
+            storage: 10Gi
+
+---
+# -----------------------------------------------------------------------------
+# Headless Service
+# -----------------------------------------------------------------------------
+# A headless Service (clusterIP: None) is required by the StatefulSet for
+# stable DNS names. Each pod gets a DNS entry:
+#   postgres-0.postgres.zitadel.svc.cluster.local
+#
+# Zitadel connects to PostgreSQL using the Service name "postgres" which
+# resolves to the pod IP directly (headless behavior).
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: zitadel
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: zitadel
+    app.kubernetes.io/component: database
+spec:
+  # clusterIP: None makes this a headless Service.
+  clusterIP: None
+
+  selector:
+    app.kubernetes.io/name: postgres
+
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: postgresql
+      protocol: TCP

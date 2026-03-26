@@ -1,0 +1,127 @@
+# =============================================================================
+# Cilium Helm Values - BGP Native Routing Mode
+# =============================================================================
+#
+# This values file configures Cilium with BGP-based native routing. In this
+# mode, pod IPs are directly routable on the physical network -- no
+# encapsulation overhead. Cilium peers with Top-of-Rack (ToR) switches via
+# BGP to advertise pod CIDRs.
+#
+# Native routing mode is ideal when:
+#   - The physical network supports BGP (typical in on-premises data centers)
+#   - Maximum network performance is required (no encapsulation overhead)
+#   - Pod IPs must be routable from outside the cluster (e.g., for monitoring)
+#   - You want to integrate with existing network infrastructure
+#
+# Trade-offs vs. overlay (VXLAN):
+#   - (+) No encapsulation overhead (~10% better throughput)
+#   - (+) Full MTU available (no VXLAN header reduction)
+#   - (+) Pod IPs directly routable from the physical network
+#   - (-) Requires BGP-capable network infrastructure
+#   - (-) More complex network configuration
+#   - (-) Pod CIDR must not conflict with existing network routes
+#
+# Install with:
+#   helm repo add cilium https://helm.cilium.io/
+#   helm install cilium cilium/cilium \
+#     --namespace kube-system \
+#     --values deploy/cilium/values-bgp.yaml
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Kube-proxy replacement
+# -----------------------------------------------------------------------------
+# kubeProxyReplacement: Cilium fully replaces kube-proxy using eBPF.
+# See values-overlay.yaml for details.
+kubeProxyReplacement: true
+
+# -----------------------------------------------------------------------------
+# Routing mode: Native (no tunnel)
+# -----------------------------------------------------------------------------
+# routingMode: "native" disables encapsulation. Pod traffic is routed
+# directly using the node's routing table, which is populated by BGP.
+routingMode: native
+
+# tunnelProtocol: Empty string explicitly disables tunnel encapsulation.
+# This is the default when routingMode is "native", but stated explicitly
+# for clarity.
+tunnelProtocol: ""
+
+# -----------------------------------------------------------------------------
+# Auto direct node routes
+# -----------------------------------------------------------------------------
+# autoDirectNodeRoutes: When enabled, Cilium automatically installs routes
+# on each node for all other nodes' pod CIDRs. This ensures pods can
+# communicate even before BGP sessions are fully established.
+#
+# This is useful as a fallback but may conflict with BGP-learned routes.
+# In a fully BGP-managed environment, you may disable this.
+autoDirectNodeRoutes: true
+
+# -----------------------------------------------------------------------------
+# Native routing CIDR
+# -----------------------------------------------------------------------------
+# ipv4NativeRoutingCIDR: The CIDR range that Cilium treats as "native" --
+# traffic to these destinations is routed directly without encapsulation
+# or masquerading.
+#
+# This MUST cover the cluster's pod CIDR. Set it to your cluster's
+# --cluster-cidr value.
+#
+# IMPORTANT: Update this value to match your cluster's pod CIDR.
+ipv4NativeRoutingCIDR: "10.244.0.0/16"
+
+# -----------------------------------------------------------------------------
+# IPAM (IP Address Management)
+# -----------------------------------------------------------------------------
+# ipam.mode: "kubernetes" delegates pod IP allocation to the Kubernetes
+# node CIDR allocator. Each node gets a /24 from the cluster CIDR.
+ipam:
+  mode: kubernetes
+
+# -----------------------------------------------------------------------------
+# Gateway API support
+# -----------------------------------------------------------------------------
+# gatewayAPI: Enables Kubernetes Gateway API support. See values-overlay.yaml
+# for detailed explanation.
+gatewayAPI:
+  enabled: true
+
+# -----------------------------------------------------------------------------
+# BGP Control Plane
+# -----------------------------------------------------------------------------
+# bgpControlPlane: Enables Cilium's built-in BGP speaker. When enabled,
+# Cilium can peer with external routers (ToR switches, route reflectors)
+# and advertise:
+#   - Pod CIDRs (so pods are reachable from outside the cluster)
+#   - Service VIPs (LoadBalancer and ExternalIP addresses)
+#   - Custom routes via CiliumBGPAdvertisement resources
+#
+# BGP peering is configured separately via CiliumBGPClusterConfig resources
+# (see deploy/cilium/bgp-peering.yaml).
+bgpControlPlane:
+  enabled: true
+
+# -----------------------------------------------------------------------------
+# Hubble - Network observability
+# -----------------------------------------------------------------------------
+# See values-overlay.yaml for detailed explanation of Hubble components.
+hubble:
+  enabled: true
+
+  relay:
+    enabled: true
+
+  ui:
+    enabled: true
+
+# -----------------------------------------------------------------------------
+# WireGuard transparent encryption
+# -----------------------------------------------------------------------------
+# encryption: WireGuard encryption works with native routing mode as well.
+# Traffic is encrypted after routing decisions but before leaving the node.
+# See values-overlay.yaml for detailed explanation.
+encryption:
+  enabled: true
+  type: wireguard

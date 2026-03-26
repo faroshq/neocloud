@@ -1,0 +1,160 @@
+# ============================================================================
+# APIResourceSchema: Notebook
+# ============================================================================
+# Defines the Notebook resource type in the ai.cloud.example API group.
+# A Notebook resource represents a managed Jupyter notebook environment that
+# tenants can provision for interactive data science and ML workloads.
+#
+# Notebooks are reconciled by the notebook-operator, which provisions
+# Jupyter instances with optional GPU support and persistent storage.
+# ============================================================================
+apiVersion: apis.kcp.io/v1alpha1
+kind: APIResourceSchema
+metadata:
+  # Name follows the KCP convention: <plural>.<group>
+  name: notebooks.ai.cloud.example
+spec:
+  # The API group this resource belongs to
+  group: ai.cloud.example
+  names:
+    # The kind used in resource manifests
+    kind: Notebook
+    # The plural form used in API URLs
+    plural: notebooks
+    # The singular form used in CLI output and help text
+    singular: notebook
+    # Short names for kubectl convenience (e.g., kubectl get nb)
+    shortNames:
+      - nb
+  # Resources are namespaced to support multi-tenancy isolation
+  scope: Namespaced
+  versions:
+    - name: v1
+      # This is the version served by the API server
+      served: true
+      # This is the version used for storage
+      storage: true
+      # Subresources configuration
+      subresources:
+        # Enable the /status subresource so that status updates can be
+        # performed separately from spec updates (typically by the operator)
+        status: {}
+      # Additional columns shown in kubectl get output
+      additionalPrinterColumns:
+        - name: Status
+          type: string
+          description: Current phase of the notebook
+          jsonPath: .status.phase
+        - name: URL
+          type: string
+          description: URL to access the notebook
+          jsonPath: .status.url
+        - name: GPU
+          type: integer
+          description: Number of GPUs attached
+          jsonPath: .spec.gpu.count
+        - name: Age
+          type: date
+          description: Time since the resource was created
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: >-
+            Notebook represents a managed Jupyter notebook environment.
+            Tenants create Notebook resources to provision interactive
+            computing environments for data science and ML workloads.
+          properties:
+            # ----------------------------------------------------------------
+            # spec: Desired state of the Notebook
+            # ----------------------------------------------------------------
+            spec:
+              type: object
+              description: Desired state of the Notebook environment
+              properties:
+                # The Jupyter notebook image to use
+                image:
+                  type: string
+                  description: >-
+                    Jupyter notebook container image. Defaults to the
+                    scipy-notebook image which includes common scientific
+                    Python libraries.
+                  default: "jupyter/scipy-notebook:latest"
+                # Resource requests for the notebook pod
+                resources:
+                  type: object
+                  description: >-
+                    Resource requests for the notebook pod. These define
+                    the guaranteed resources allocated to the notebook.
+                  properties:
+                    cpu:
+                      type: string
+                      description: >-
+                        CPU request in Kubernetes resource format
+                        (e.g., "1", "2", "4").
+                      default: "1"
+                    memory:
+                      type: string
+                      description: >-
+                        Memory request in Kubernetes resource format
+                        (e.g., "4Gi", "8Gi", "16Gi").
+                      default: "4Gi"
+                # Optional GPU configuration for ML workloads
+                gpu:
+                  type: object
+                  description: >-
+                    Optional GPU configuration. When specified with count > 0,
+                    the notebook will be scheduled on a GPU node with the
+                    requested number of GPU devices available.
+                  properties:
+                    count:
+                      type: integer
+                      description: >-
+                        Number of GPU devices to attach. Set to 0 for no GPU
+                        (default). GPU-enabled notebooks are scheduled on
+                        nodes with available GPU resources.
+                      default: 0
+                      minimum: 0
+                # Persistent storage for notebook data
+                storage:
+                  type: object
+                  description: >-
+                    Persistent storage configuration. Data stored in the
+                    notebook's workspace directory will persist across
+                    restarts.
+                  properties:
+                    size:
+                      type: string
+                      description: >-
+                        Size of the persistent volume for notebook data
+                        (e.g., "10Gi", "50Gi", "100Gi").
+                      default: "10Gi"
+            # ----------------------------------------------------------------
+            # status: Observed state of the Notebook (set by operator)
+            # ----------------------------------------------------------------
+            status:
+              type: object
+              description: >-
+                Observed state of the Notebook, populated by the
+                notebook-operator.
+              properties:
+                phase:
+                  type: string
+                  description: >-
+                    Current lifecycle phase of the notebook
+                    (e.g., Pending, Provisioning, Ready, Failed).
+                url:
+                  type: string
+                  description: >-
+                    URL to access the Jupyter notebook interface. Only set
+                    when the notebook is in Ready phase.
+                token:
+                  type: string
+                  description: >-
+                    Authentication token for accessing the notebook. This
+                    token is auto-generated and required for initial access.
+                message:
+                  type: string
+                  description: >-
+                    Human-readable message providing details about the current
+                    phase or any errors encountered.

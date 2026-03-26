@@ -1,0 +1,140 @@
+# Workload cluster definition using Cluster API with the Metal3 provider.
+# This cluster hosts tenant workloads. The control plane starts with a
+# single replica but can be scaled to 3 for production HA.
+
+# --------------------------------------------------------------------------
+# Cluster
+# --------------------------------------------------------------------------
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  name: workload-cluster
+  namespace: metal3
+  labels:
+    app.kubernetes.io/part-of: sovereign-cloud-ref
+    app.kubernetes.io/managed-by: cluster-api
+    cluster-role: workload
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+        - "10.245.0.0/16"
+    services:
+      cidrBlocks:
+        - "10.97.0.0/16"
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+    kind: KubeadmControlPlane
+    name: workload-cluster-control-plane
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    kind: Metal3Cluster
+    name: workload-cluster
+
+---
+# --------------------------------------------------------------------------
+# Metal3Cluster — infrastructure backing for the CAPI Cluster.
+# --------------------------------------------------------------------------
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: Metal3Cluster
+metadata:
+  name: workload-cluster
+  namespace: metal3
+  labels:
+    app.kubernetes.io/part-of: sovereign-cloud-ref
+    cluster-role: workload
+spec:
+  # Virtual IP for the workload cluster API server, managed by
+  # keepalived or kube-vip.
+  controlPlaneEndpoint:
+    host: "172.16.30.20"
+    port: 6443
+  noCloudProvider: true
+
+---
+# --------------------------------------------------------------------------
+# KubeadmControlPlane — defines the control-plane topology and config.
+# --------------------------------------------------------------------------
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+kind: KubeadmControlPlane
+metadata:
+  name: workload-cluster-control-plane
+  namespace: metal3
+  labels:
+    app.kubernetes.io/part-of: sovereign-cloud-ref
+    cluster-role: workload
+spec:
+  # Single replica to start; scale to 3 for production HA.
+  replicas: 1
+
+  version: v1.30.4
+
+  machineTemplate:
+    infrastructureRef:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+      kind: Metal3MachineTemplate
+      name: workload-cluster-control-plane
+
+  kubeadmConfigSpec:
+    # Commands executed before kubeadm init/join on each node.
+    preKubeadmCommands:
+      - hostnamectl set-hostname "{{ ds.meta_data.hostname }}"
+      - echo "{{ ds.meta_data.hostname }}" > /etc/hostname
+      - echo "127.0.1.1 {{ ds.meta_data.hostname }}" >> /etc/hosts
+      - modprobe br_netfilter
+      - modprobe overlay
+      - sysctl -w net.bridge.bridge-nf-call-iptables=1
+      - sysctl -w net.ipv4.ip_forward=1
+
+    initConfiguration:
+      nodeRegistration:
+        kubeletExtraArgs:
+          cloud-provider: ""
+        name: "{{ ds.meta_data.hostname }}"
+
+    joinConfiguration:
+      nodeRegistration:
+        kubeletExtraArgs:
+          cloud-provider: ""
+        name: "{{ ds.meta_data.hostname }}"
+
+    clusterConfiguration:
+      apiServer:
+        extraArgs:
+          audit-log-path: /var/log/kubernetes/audit.log
+          audit-log-maxage: "30"
+          audit-log-maxbackup: "10"
+          audit-log-maxsize: "100"
+      etcd:
+        local:
+          dataDir: /var/lib/etcd
+
+---
+# --------------------------------------------------------------------------
+# Metal3MachineTemplate — bare-metal machine spec for control-plane nodes.
+# --------------------------------------------------------------------------
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: Metal3MachineTemplate
+metadata:
+  name: workload-cluster-control-plane
+  namespace: metal3
+  labels:
+    app.kubernetes.io/part-of: sovereign-cloud-ref
+    cluster-role: workload
+spec:
+  template:
+    spec:
+      # Select only BareMetalHosts labelled for workload duties.
+      hostSelector:
+        matchLabels:
+          role: workload
+
+      image:
+        # Flatcar Container Linux served by the Ironic image server.
+        url: "http://172.16.20.10:6180/images/flatcar_production_metal_image.bin.bz2"
+        checksum: "http://172.16.20.10:6180/images/flatcar_production_metal_image.bin.bz2.md5sum"
+        checksumType: md5
+        format: raw
+
+      dataTemplate:
+        name: workload-cluster-control-plane-metadata

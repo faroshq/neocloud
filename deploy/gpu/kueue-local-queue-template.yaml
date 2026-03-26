@@ -1,0 +1,28 @@
+# Kueue LocalQueue - Template for tenant namespaces
+#
+# A LocalQueue must exist in each namespace where workloads should be
+# admitted through Kueue. It references a ClusterQueue, which defines
+# the resource budget.
+#
+# This file serves as a template. When onboarding a new tenant:
+#   1. Replace TENANT_NAMESPACE with the tenant's namespace
+#   2. Apply the manifest: kubectl apply -f <modified-file>
+#
+# Alternatively, automate this via the tenant onboarding controller or
+# a Kyverno/OPA policy that creates a LocalQueue in every new namespace.
+#
+# Usage:
+#   sed 's/TENANT_NAMESPACE/my-tenant-ns/' kueue-local-queue-template.yaml | kubectl apply -f -
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  # "default" is the conventional name; workloads without an explicit
+  # queueName annotation will be submitted to the "default" LocalQueue.
+  name: default
+  namespace: TENANT_NAMESPACE
+spec:
+  # Reference to the ClusterQueue that controls admission for this namespace.
+  # All workloads submitted to this LocalQueue share the ClusterQueue's quotas
+  # with workloads from other namespaces.
+  clusterQueue: platform-queue

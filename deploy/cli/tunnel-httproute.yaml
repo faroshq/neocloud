@@ -1,0 +1,90 @@
+# =============================================================================
+# Tunnel Service - Gateway API Route
+# =============================================================================
+# This file defines the route for external access to the gRPC tunnel service.
+#
+# IMPORTANT: gRPC routing considerations
+# ---------------------------------------
+# gRPC runs over HTTP/2. There are several Gateway API options depending on
+# your gateway controller:
+#
+# Option 1: GRPCRoute (preferred if your controller supports it)
+#   - Native gRPC support in Gateway API (v1 since Gateway API v1.1.0)
+#   - Best option for gRPC-aware load balancing and routing
+#   - Supported by: Envoy Gateway, Istio, Contour
+#
+# Option 2: HTTPRoute with HTTP/2
+#   - Works if the gateway supports HTTP/2 backend protocol
+#   - Requires the gateway to handle TLS termination and HTTP/2 upgrade
+#   - May need BackendTLSPolicy for backend TLS
+#
+# Option 3: TLSRoute (TLS passthrough)
+#   - Gateway passes encrypted traffic directly to the backend
+#   - The tunnel-service handles TLS termination itself
+#   - Good for end-to-end encryption but limits gateway-level observability
+#
+# Below we define both a GRPCRoute (preferred) and a TLSRoute (fallback).
+# Use whichever is appropriate for your gateway controller.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Option 1: GRPCRoute (preferred)
+# -----------------------------------------------------------------------------
+# Use this if your Gateway controller supports GRPCRoute (Gateway API v1.1.0+).
+# This provides native gRPC routing with proper HTTP/2 handling.
+# -----------------------------------------------------------------------------
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: tunnel-grpc-route
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: tunnel-service
+    app.kubernetes.io/component: routing
+    app.kubernetes.io/part-of: sovereign-cloud-platform
+spec:
+  parentRefs:
+    - name: platform
+      namespace: platform
+      sectionName: https
+  hostnames:
+    - tunnel.demo.example.com
+  rules:
+    - backendRefs:
+        - name: tunnel-service
+          port: 8443
+          weight: 1
+
+---
+# -----------------------------------------------------------------------------
+# Option 2: TLSRoute (fallback - TLS passthrough)
+# -----------------------------------------------------------------------------
+# Use this if your Gateway controller does not support GRPCRoute.
+# With TLS passthrough, the tunnel-service must handle its own TLS termination.
+# To use this option:
+#   1. Comment out or remove the GRPCRoute above
+#   2. Uncomment the TLSRoute below
+#   3. Ensure the tunnel-service is configured with TLS certificates
+#   4. Add a TLS listener on the Gateway for tunnel.demo.example.com
+# -----------------------------------------------------------------------------
+# apiVersion: gateway.networking.k8s.io/v1alpha2
+# kind: TLSRoute
+# metadata:
+#   name: tunnel-tls-route
+#   namespace: platform
+#   labels:
+#     app.kubernetes.io/name: tunnel-service
+#     app.kubernetes.io/component: routing
+#     app.kubernetes.io/part-of: sovereign-cloud-platform
+# spec:
+#   parentRefs:
+#     - name: platform
+#       namespace: platform
+#       sectionName: tls-passthrough
+#   hostnames:
+#     - tunnel.demo.example.com
+#   rules:
+#     - backendRefs:
+#         - name: tunnel-service
+#           port: 8443
+#           weight: 1

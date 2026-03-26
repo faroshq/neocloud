@@ -1,0 +1,172 @@
+# =============================================================================
+# Platform TLS Certificates
+# =============================================================================
+# cert-manager Certificate resources for all platform services. Each
+# Certificate creates a TLS Secret that can be referenced by Gateway
+# listeners, Ingress resources, or application pods.
+#
+# All certificates use the letsencrypt-prod ClusterIssuer. For testing,
+# change the issuerRef.name to "letsencrypt-staging" on each Certificate.
+#
+# Prerequisites:
+#   - cert-manager installed in the cluster
+#   - letsencrypt-prod ClusterIssuer (see letsencrypt-issuer.yaml)
+#   - DNS records pointing to the cluster (see dns-records.yaml)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# kcp API Server Certificate
+# -----------------------------------------------------------------------------
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: kcp-tls
+  namespace: platform
+  labels:
+    app.kubernetes.io/component: tls
+    app.kubernetes.io/part-of: sovereign-cloud-platform
+spec:
+  secretName: kcp-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - kcp.demo.example.com
+  # Renew 30 days before expiry (certificates are valid for 90 days)
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+
+---
+# -----------------------------------------------------------------------------
+# Zitadel Authentication Certificate
+# -----------------------------------------------------------------------------
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: auth-tls
+  namespace: platform
+  labels:
+    app.kubernetes.io/component: tls
+    app.kubernetes.io/part-of: sovereign-cloud-platform
+spec:
+  secretName: auth-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - auth.demo.example.com
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+
+---
+# -----------------------------------------------------------------------------
+# Web Console Certificate
+# -----------------------------------------------------------------------------
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: console-tls
+  namespace: platform
+  labels:
+    app.kubernetes.io/component: tls
+    app.kubernetes.io/part-of: sovereign-cloud-platform
+spec:
+  secretName: console-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - console.demo.example.com
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+
+---
+# -----------------------------------------------------------------------------
+# Grafana Monitoring Dashboard Certificate
+# -----------------------------------------------------------------------------
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: grafana-tls
+  namespace: platform
+  labels:
+    app.kubernetes.io/component: tls
+    app.kubernetes.io/part-of: sovereign-cloud-platform
+spec:
+  secretName: grafana-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - grafana.demo.example.com
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+
+---
+# -----------------------------------------------------------------------------
+# Tunnel Service Certificate
+# -----------------------------------------------------------------------------
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: tunnel-tls
+  namespace: platform
+  labels:
+    app.kubernetes.io/component: tls
+    app.kubernetes.io/part-of: sovereign-cloud-platform
+spec:
+  secretName: tunnel-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - tunnel.demo.example.com
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+
+---
+# -----------------------------------------------------------------------------
+# Wildcard Tenant Certificate
+# -----------------------------------------------------------------------------
+# This wildcard certificate covers all tenant subdomains. Wildcard certificates
+# require DNS-01 validation (HTTP-01 cannot be used for wildcards).
+#
+# IMPORTANT: If using HTTP-01 solver only, you must switch to a DNS-01 solver
+# for this certificate. See cert-manager documentation for configuring DNS-01
+# with your DNS provider (e.g., Cloudflare, Route53, Google Cloud DNS).
+#
+# Example DNS-01 solver override (uncomment and configure):
+#   issuerRef:
+#     name: letsencrypt-prod-dns01
+#     kind: ClusterIssuer
+# -----------------------------------------------------------------------------
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: tenant-wildcard-tls
+  namespace: platform
+  labels:
+    app.kubernetes.io/component: tls
+    app.kubernetes.io/part-of: sovereign-cloud-platform
+spec:
+  secretName: tenant-wildcard-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    # Wildcard for all tenant subdomains
+    - "*.tenant.demo.example.com"
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256

@@ -1,0 +1,22 @@
+# L2 announcement policy for bare metal LoadBalancer services.
+# This allows Cilium to respond to ARP requests for LoadBalancer IPs,
+# providing MetalLB-like functionality without an extra component.
+apiVersion: cilium.io/v2alpha1
+kind: CiliumL2AnnouncementPolicy
+metadata:
+  name: default
+spec:
+  interfaces:
+    - eth0
+  externalIPs: true
+  loadBalancerIPs: true
+---
+# IP pool for LoadBalancer services.
+# Adjust the CIDR to match your provider's allocatable public IP range.
+apiVersion: cilium.io/v2alpha1
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: public-pool
+spec:
+  blocks:
+    - cidr: 203.0.113.128/25

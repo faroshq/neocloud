@@ -1,0 +1,92 @@
+# Tenant Onboarding Controller
+#
+# Watches for new KCP users (detected via OIDC login / home workspace creation)
+# and automatically provisions their tenant environment:
+#
+#   1. Creates KCP workspace (tenant-{user-id})
+#   2. Creates APIBindings for platform services (compute, ai, storage, network)
+#   3. Binds RBAC (user = workspace admin)
+#   4. Sets default ResourceQuota (free tier)
+#   5. Creates OpenMeter customer + subscription (free plan)
+#   6. Creates tenant namespace on workload cluster
+#   7. Applies Cilium NetworkPolicy for tenant isolation
+#   8. Creates Kueue LocalQueue for the tenant
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: onboarding-controller
+  namespace: platform-operators
+  labels:
+    app: onboarding-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: onboarding-controller
+  template:
+    metadata:
+      labels:
+        app: onboarding-controller
+    spec:
+      serviceAccountName: onboarding-controller
+      containers:
+        - name: controller
+          image: ghcr.io/faroshq/onboarding-controller:latest
+          args:
+            - --kcp-kubeconfig=/etc/kcp/kubeconfig
+            - --workload-kubeconfig=/etc/workload/kubeconfig
+            - --openmeter-url=http://openmeter.openmeter.svc:8888
+            - --default-plan=free
+            - --default-quota-cpu=1
+            - --default-quota-memory=2Gi
+            - --default-quota-gpu=0
+            - --api-exports=compute,ai,storage,network
+          env:
+            - name: OPENMETER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openmeter-credentials
+                  key: token
+          ports:
+            - containerPort: 8080
+              name: metrics
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: kcp-kubeconfig
+              mountPath: /etc/kcp
+              readOnly: true
+            - name: workload-kubeconfig
+              mountPath: /etc/workload
+              readOnly: true
+      volumes:
+        - name: kcp-kubeconfig
+          secret:
+            secretName: kcp-operator-kubeconfig
+        - name: workload-kubeconfig
+          secret:
+            secretName: workload-kubeconfig
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: onboarding-controller
+  namespace: platform-operators

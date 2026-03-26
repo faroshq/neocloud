@@ -1,0 +1,25 @@
+# ============================================================================
+# APIExport: compute
+# ============================================================================
+# Exposes the compute API group resources to tenants via KCP's API export
+# mechanism. Tenants can bind to this APIExport to gain access to Compute
+# and VirtualMachine resources in their workspaces.
+#
+# The APIExport references the latest versions of the APIResourceSchemas
+# for all compute-related resources. When schemas are updated, tenants
+# automatically receive the new API definitions.
+# ============================================================================
+apiVersion: apis.kcp.io/v1alpha1
+kind: APIExport
+metadata:
+  # Name of the APIExport, used by tenants when creating APIBindings
+  name: compute
+spec:
+  # List of APIResourceSchema names that are part of this export.
+  # These schemas define the resource types available to tenants
+  # who bind to this APIExport.
+  latestResourceSchemas:
+    # Compute: container-based managed compute instances
+    - computes.compute.cloud.example
+    # VirtualMachine: full virtual machine instances
+    - virtualmachines.compute.cloud.example

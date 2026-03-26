@@ -1,0 +1,54 @@
+# =============================================================================
+# Let's Encrypt Staging ClusterIssuer
+# =============================================================================
+# cert-manager ClusterIssuer for obtaining TEST TLS certificates from
+# Let's Encrypt's staging environment. Staging certificates are NOT trusted
+# by browsers but are functionally identical to production certificates.
+#
+# USE THIS ISSUER FOR TESTING to avoid Let's Encrypt production rate limits:
+#   - 50 certificates per registered domain per week
+#   - 5 duplicate certificates per week
+#   - 300 new orders per account per 3 hours
+#
+# The staging environment has much higher limits:
+#   - 30,000 certificates per registered domain per week
+#   - 30,000 duplicate certificates per week
+#   - 1,500 new orders per account per 3 hours
+#
+# To switch a Certificate resource from staging to production, change the
+# issuerRef.name from "letsencrypt-staging" to "letsencrypt-prod" and delete
+# the old Secret so cert-manager creates a new one.
+#
+# Prerequisites:
+#   - cert-manager installed in the cluster
+#   - Cilium configured as the ingress controller (or update solver class)
+# =============================================================================
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+  labels:
+    app.kubernetes.io/component: tls
+    app.kubernetes.io/part-of: sovereign-cloud-platform
+spec:
+  acme:
+    # Let's Encrypt STAGING ACME v2 endpoint
+    # Certificates issued by this endpoint are NOT trusted by browsers
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+
+    # Email address for certificate expiry notifications and account recovery
+    # TODO: Replace with your organization's email address
+    email: admin@demo.example.com
+
+    # Secret to store the ACME account private key (separate from production)
+    privateKeySecretRef:
+      name: letsencrypt-staging
+
+    # HTTP-01 challenge solver configuration
+    # Same configuration as the production issuer
+    solvers:
+      - http01:
+          ingress:
+            # Use Cilium as the ingress class for solving HTTP-01 challenges
+            # Change this if using a different ingress controller (e.g., nginx, traefik)
+            ingressClassName: cilium

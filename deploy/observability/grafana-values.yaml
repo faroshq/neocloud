@@ -1,0 +1,178 @@
+# =============================================================================
+# Grafana Helm Values — Management Cluster
+# =============================================================================
+#
+# Deployment target: management cluster
+#
+# This Grafana instance is the single pane of glass for the entire platform.
+# It reads from VictoriaMetrics (Prometheus-compatible) and authenticates
+# users via Zitadel (OIDC / generic_oauth).
+#
+# Install:
+#   helm upgrade --install grafana grafana/grafana \
+#     -n monitoring --create-namespace -f grafana-values.yaml
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Admin credentials — CHANGE THESE or supply via a Secret.
+# ---------------------------------------------------------------------------
+adminUser: admin
+adminPassword: changeme-use-a-secret
+
+# ---------------------------------------------------------------------------
+# Root URL — must match the external URL for OAuth redirects to work.
+# ---------------------------------------------------------------------------
+grafana.ini:
+  server:
+    root_url: https://grafana.demo.example.com
+
+  # -------------------------------------------------------------------------
+  # OIDC authentication via Zitadel (generic_oauth provider)
+  # -------------------------------------------------------------------------
+  # Zitadel is the platform identity provider. Configure an OIDC application
+  # in Zitadel and paste the client_id / client_secret here (or reference a
+  # Kubernetes Secret).
+  auth.generic_oauth:
+    enabled: true
+    name: Zitadel
+    allow_sign_up: true
+
+    # Zitadel OIDC endpoints — adjust the issuer URL to your Zitadel instance.
+    auth_url: https://zitadel.demo.example.com/oauth/v2/authorize
+    token_url: https://zitadel.demo.example.com/oauth/v2/token
+    api_url: https://zitadel.demo.example.com/oidc/v1/userinfo
+
+    # Client credentials — replace with real values or mount from a Secret.
+    client_id: REPLACE_WITH_ZITADEL_CLIENT_ID
+    client_secret: REPLACE_WITH_ZITADEL_CLIENT_SECRET
+
+    # Scopes requested during the OIDC flow.
+    scopes: openid profile email groups
+
+    # Map OIDC claims to Grafana roles.
+    # Zitadel groups/roles -> Grafana org roles.
+    role_attribute_path: "contains(groups[*], 'platform-admins') && 'Admin' || contains(groups[*], 'platform-editors') && 'Editor' || 'Viewer'"
+    role_attribute_strict: false
+
+    # Use the email claim as the Grafana login identifier.
+    email_attribute_name: email
+    login_attribute_path: preferred_username
+
+  # -------------------------------------------------------------------------
+  # Security defaults
+  # -------------------------------------------------------------------------
+  security:
+    # Disable basic auth when OIDC is the primary login method (optional).
+    # disable_login_form: true
+    cookie_secure: true
+
+# ---------------------------------------------------------------------------
+# Datasources — VictoriaMetrics as the default Prometheus-compatible source.
+# ---------------------------------------------------------------------------
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: VictoriaMetrics
+        type: prometheus
+        # VictoriaMetrics exposes a Prometheus-compatible query API.
+        url: http://victoria-metrics.monitoring.svc:8428
+        access: proxy
+        isDefault: true
+        editable: false
+        jsonData:
+          # Increase the default time range for better initial experience.
+          timeInterval: 30s
+
+# ---------------------------------------------------------------------------
+# Dashboard providers — auto-load dashboards from ConfigMaps or a directory.
+# ---------------------------------------------------------------------------
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+      - name: default
+        orgId: 1
+        # Dashboards are loaded from ConfigMaps labelled
+        # grafana_dashboard: "1" (the sidecar picks them up).
+        folder: ""
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/default
+
+      - name: platform
+        orgId: 1
+        folder: Platform
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/platform
+
+      - name: gpu
+        orgId: 1
+        folder: GPU
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/gpu
+
+# ---------------------------------------------------------------------------
+# Sidecar — watches for ConfigMaps with dashboards and datasource labels.
+# ---------------------------------------------------------------------------
+sidecar:
+  dashboards:
+    enabled: true
+    label: grafana_dashboard
+    labelValue: "1"
+    # Search across all namespaces for dashboard ConfigMaps.
+    searchNamespace: ALL
+    folderAnnotation: grafana_folder
+    provider:
+      foldersFromFilesStructure: true
+  datasources:
+    enabled: true
+    label: grafana_datasource
+
+# ---------------------------------------------------------------------------
+# Persistence — 5Gi for Grafana's internal SQLite database.
+# ---------------------------------------------------------------------------
+persistence:
+  enabled: true
+  size: 5Gi
+  # storageClassName: ""  # Uncomment to pin a specific storage class.
+
+# ---------------------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------------------
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# ---------------------------------------------------------------------------
+# Service
+# ---------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 80
+
+# ---------------------------------------------------------------------------
+# Ingress — uncomment to expose Grafana externally.
+# ---------------------------------------------------------------------------
+# ingress:
+#   enabled: true
+#   annotations:
+#     cert-manager.io/cluster-issuer: letsencrypt-prod
+#   hosts:
+#     - grafana.demo.example.com
+#   tls:
+#     - secretName: grafana-tls
+#       hosts:
+#         - grafana.demo.example.com

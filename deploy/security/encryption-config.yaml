@@ -1,0 +1,76 @@
+# =============================================================================
+# Kubernetes EncryptionConfiguration for etcd Encryption at Rest
+# =============================================================================
+# This configuration enables encryption of Kubernetes Secret resources stored
+# in etcd. Without this, Secrets are stored as base64-encoded plaintext in
+# etcd, which means anyone with access to etcd can read all secrets.
+#
+# HOW TO USE:
+#   1. Generate a 32-byte encryption key:
+#        openssl rand -base64 32
+#
+#   2. Replace the placeholder key below with the generated value
+#
+#   3. Place this file on each control plane node at:
+#        /etc/kubernetes/encryption-config.yaml
+#
+#   4. Add the following flag to the kube-apiserver configuration:
+#        --encryption-provider-config=/etc/kubernetes/encryption-config.yaml
+#
+#   5. Restart the kube-apiserver
+#
+#   6. Re-encrypt all existing secrets:
+#        kubectl get secrets --all-namespaces -o json | kubectl replace -f -
+#
+# KEY ROTATION:
+#   To rotate the encryption key:
+#   1. Add a new key as the FIRST entry in the keys list
+#   2. Restart kube-apiserver
+#   3. Re-encrypt all secrets: kubectl get secrets -A -o json | kubectl replace -f -
+#   4. Remove the old key from the list
+#   5. Restart kube-apiserver again
+#
+# IMPORTANT:
+#   - Back up this file securely. If you lose the encryption key, you lose
+#     access to all encrypted secrets.
+#   - Store the key outside of the cluster (e.g., in a hardware security
+#     module, vault, or offline backup).
+#   - This file must be present on ALL control plane nodes.
+#
+# For more information:
+#   https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/
+# =============================================================================
+apiVersion: apiserver.config.k8s.io/v1
+kind: EncryptionConfiguration
+resources:
+  - resources:
+      # Encrypt Kubernetes Secrets at rest
+      - secrets
+    providers:
+      # -----------------------------------------------------------------------
+      # AES-CBC encryption provider
+      # -----------------------------------------------------------------------
+      # AES-CBC is a well-established encryption method. For Kubernetes 1.27+,
+      # consider using "aesgcm" (AES-GCM) which is faster and provides
+      # authenticated encryption, or "aescbc" which is widely supported.
+      #
+      # For the strongest security, consider using a KMS provider (e.g., AWS
+      # KMS, GCP KMS, Azure Key Vault, HashiCorp Vault) which keeps the
+      # encryption key outside the cluster.
+      # -----------------------------------------------------------------------
+      - aescbc:
+          keys:
+            - name: key1
+              # TODO: Replace this placeholder with a real 32-byte base64-encoded key
+              # Generate with: openssl rand -base64 32
+              secret: REPLACE_WITH_BASE64_ENCODED_32_BYTE_KEY
+
+      # -----------------------------------------------------------------------
+      # Identity provider (fallback - no encryption)
+      # -----------------------------------------------------------------------
+      # The identity provider is listed last as a fallback for reading
+      # secrets that were stored before encryption was enabled. Once all
+      # secrets have been re-encrypted, you can optionally remove this
+      # provider (but keeping it is harmless and helps during migration).
+      # -----------------------------------------------------------------------
+      - identity: {}

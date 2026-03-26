@@ -1,0 +1,118 @@
+# =============================================================================
+# Cilium Helm Values - Overlay (VXLAN) Mode
+# =============================================================================
+#
+# This values file configures Cilium in overlay networking mode using VXLAN
+# encapsulation. Overlay mode is ideal when:
+#   - The underlying network does not support BGP or custom routing
+#   - You want maximum portability across infrastructure providers
+#   - Pod-to-pod traffic must traverse L3 network boundaries
+#
+# Trade-offs vs. native routing (BGP):
+#   - (+) Works on any network without special configuration
+#   - (+) Simpler to set up and debug
+#   - (-) ~10% throughput overhead from encapsulation
+#   - (-) MTU reduction (50 bytes for VXLAN headers)
+#   - (-) Pod IPs are not directly routable from outside the cluster
+#
+# Install with:
+#   helm repo add cilium https://helm.cilium.io/
+#   helm install cilium cilium/cilium \
+#     --namespace kube-system \
+#     --values deploy/cilium/values-overlay.yaml
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Kube-proxy replacement
+# -----------------------------------------------------------------------------
+# kubeProxyReplacement: Cilium fully replaces kube-proxy, handling all
+# Service load balancing, NodePort, and ExternalIP functionality using eBPF.
+# This provides better performance and more features than iptables-based
+# kube-proxy.
+#
+# Prerequisite: kube-proxy must be disabled or removed from the cluster.
+#   kubeadm: set kubeProxy.enabled=false in kubeadm-config
+#   k3s: use --disable-kube-proxy flag
+kubeProxyReplacement: true
+
+# -----------------------------------------------------------------------------
+# Tunnel / Overlay configuration
+# -----------------------------------------------------------------------------
+# tunnelProtocol: VXLAN encapsulates L2 frames in UDP packets, creating a
+# virtual overlay network. All pod-to-pod traffic between nodes is
+# encapsulated in VXLAN headers.
+#
+# Alternative: "geneve" offers more extensibility but slightly higher overhead.
+tunnelProtocol: vxlan
+
+# routingMode: "tunnel" tells Cilium to encapsulate cross-node pod traffic.
+# This is the default for overlay mode.
+routingMode: tunnel
+
+# -----------------------------------------------------------------------------
+# IPAM (IP Address Management)
+# -----------------------------------------------------------------------------
+# ipam.mode: "kubernetes" delegates IP allocation to the Kubernetes node CIDR
+# allocator. Each node gets a pod CIDR from the cluster CIDR, and Cilium
+# assigns IPs from that range.
+#
+# Alternative modes:
+#   - "cluster-pool": Cilium manages its own IP pool (more flexible)
+#   - "multi-pool": Multiple IP pools for different workload types
+ipam:
+  mode: kubernetes
+
+# -----------------------------------------------------------------------------
+# Gateway API support
+# -----------------------------------------------------------------------------
+# gatewayAPI: Enables Kubernetes Gateway API support. Cilium acts as a
+# Gateway controller, processing Gateway, HTTPRoute, and TLSRoute resources.
+#
+# This replaces traditional Ingress controllers with the more expressive
+# Gateway API model. Required for the platform's gateway configuration
+# (see deploy/cilium/gateway.yaml).
+gatewayAPI:
+  enabled: true
+
+# -----------------------------------------------------------------------------
+# Hubble - Network observability
+# -----------------------------------------------------------------------------
+# Hubble provides deep visibility into network traffic, DNS queries, and
+# HTTP requests flowing through the Cilium datapath. Essential for
+# debugging network policies and understanding traffic patterns.
+#
+# Components:
+#   - hubble (core): Collects flow data from each node's eBPF datapath
+#   - relay: Aggregates flow data from all nodes into a single stream
+#   - ui: Web-based dashboard for visualizing network flows
+hubble:
+  enabled: true
+
+  relay:
+    # relay.enabled: The relay aggregates Hubble data from all nodes.
+    # Without relay, you can only observe flows on individual nodes.
+    enabled: true
+
+  ui:
+    # ui.enabled: Deploys the Hubble UI web interface.
+    # Access via: kubectl port-forward -n kube-system svc/hubble-ui 12000:80
+    enabled: true
+
+# -----------------------------------------------------------------------------
+# WireGuard transparent encryption
+# -----------------------------------------------------------------------------
+# encryption: Enables WireGuard-based encryption for all pod-to-pod traffic
+# between nodes. This provides:
+#   - Confidentiality: Traffic is encrypted with modern cryptography
+#   - Authentication: Nodes authenticate each other via WireGuard keys
+#   - Performance: WireGuard is significantly faster than IPsec
+#
+# WireGuard encryption is applied transparently -- no application changes
+# needed. All cross-node pod traffic is encrypted automatically.
+#
+# Prerequisite: WireGuard kernel module must be available on all nodes.
+#   Most modern Linux kernels (5.6+) include WireGuard natively.
+encryption:
+  enabled: true
+  type: wireguard

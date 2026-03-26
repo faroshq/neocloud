@@ -1,0 +1,46 @@
+# Default Deny NetworkPolicy (Standard Kubernetes)
+#
+# This is a fallback policy using standard Kubernetes NetworkPolicy API.
+# The Cilium CiliumNetworkPolicy (see deploy/cilium/tenant-network-policy-template.yaml)
+# is preferred as it supports L7 filtering and more granular rules.
+#
+# Use this if you need to enforce isolation on clusters without Cilium,
+# or as an additional defense-in-depth layer.
+#
+# Apply to each tenant namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: TENANT_NAMESPACE       # Replace with actual tenant namespace
+spec:
+  podSelector: {}                   # Applies to all pods
+  policyTypes:
+    - Ingress
+    - Egress
+  # No ingress/egress rules = deny all
+  # Cilium CiliumNetworkPolicy adds the allow rules on top
+---
+# Allow DNS egress (required for service discovery)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: TENANT_NAMESPACE       # Replace with actual tenant namespace
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

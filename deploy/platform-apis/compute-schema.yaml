@@ -1,0 +1,158 @@
+# ============================================================================
+# APIResourceSchema: Compute
+# ============================================================================
+# Defines the Compute resource type in the compute.cloud.example API group.
+# A Compute resource represents a managed compute instance (container-based)
+# that can be provisioned by tenants through the platform API.
+#
+# This schema is registered with KCP and made available to tenants via the
+# "compute" APIExport. The actual reconciliation is handled by the
+# compute-operator running in the management cluster.
+# ============================================================================
+apiVersion: apis.kcp.io/v1alpha1
+kind: APIResourceSchema
+metadata:
+  # Name follows the KCP convention: <plural>.<group>
+  name: computes.compute.cloud.example
+spec:
+  # The API group this resource belongs to
+  group: compute.cloud.example
+  names:
+    # The kind used in resource manifests
+    kind: Compute
+    # The plural form used in API URLs
+    plural: computes
+    # The singular form used in CLI output and help text
+    singular: compute
+    # Short names for kubectl convenience (e.g., kubectl get co)
+    shortNames:
+      - co
+  # Resources are namespaced to support multi-tenancy isolation
+  scope: Namespaced
+  versions:
+    - name: v1
+      # This is the version served by the API server
+      served: true
+      # This is the version used for storage
+      storage: true
+      # Subresources configuration
+      subresources:
+        # Enable the /status subresource so that status updates can be
+        # performed separately from spec updates (typically by the operator)
+        status: {}
+      # Additional columns shown in kubectl get output
+      additionalPrinterColumns:
+        - name: Status
+          type: string
+          description: Current phase of the compute instance
+          jsonPath: .status.phase
+        - name: URL
+          type: string
+          description: Public URL of the compute instance
+          jsonPath: .status.url
+        - name: Age
+          type: date
+          description: Time since the resource was created
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: >-
+            Compute represents a managed container-based compute instance.
+            Tenants create Compute resources to provision application workloads
+            on the platform.
+          properties:
+            # ----------------------------------------------------------------
+            # spec: Desired state of the Compute instance
+            # ----------------------------------------------------------------
+            spec:
+              type: object
+              description: Desired state of the Compute instance
+              required:
+                - image
+              properties:
+                # The container image to run
+                image:
+                  type: string
+                  description: >-
+                    Container image to deploy. Must be a fully qualified image
+                    reference (e.g., ghcr.io/myorg/myapp:v1.0).
+                # Number of replicas to run
+                replicas:
+                  type: integer
+                  description: >-
+                    Number of replicas to run. Defaults to 1. The platform will
+                    distribute replicas across availability zones.
+                  default: 1
+                  minimum: 1
+                  maximum: 100
+                # Resource requests for each replica
+                resources:
+                  type: object
+                  description: >-
+                    Resource requests for each replica. These define the
+                    guaranteed resources allocated to each instance.
+                  properties:
+                    cpu:
+                      type: string
+                      description: >-
+                        CPU request in Kubernetes resource format
+                        (e.g., "500m", "1", "2").
+                      default: "500m"
+                    memory:
+                      type: string
+                      description: >-
+                        Memory request in Kubernetes resource format
+                        (e.g., "512Mi", "1Gi", "4Gi").
+                      default: "512Mi"
+                # Ports exposed by the compute instance
+                ports:
+                  type: array
+                  description: >-
+                    List of ports exposed by the compute instance. Public ports
+                    will be assigned a platform-managed endpoint.
+                  items:
+                    type: object
+                    properties:
+                      port:
+                        type: integer
+                        description: Port number to expose
+                      public:
+                        type: boolean
+                        description: >-
+                          Whether this port should be publicly accessible.
+                          Public ports get a platform-managed URL.
+                        default: false
+            # ----------------------------------------------------------------
+            # status: Observed state of the Compute instance (set by operator)
+            # ----------------------------------------------------------------
+            status:
+              type: object
+              description: >-
+                Observed state of the Compute instance, populated by the
+                compute-operator.
+              properties:
+                phase:
+                  type: string
+                  description: Current lifecycle phase of the compute instance
+                  enum:
+                    - Pending
+                    - Provisioning
+                    - Ready
+                    - Failed
+                    - Deleting
+                url:
+                  type: string
+                  description: >-
+                    Public URL assigned to the compute instance. Only set when
+                    the instance has public ports and is in Ready phase.
+                message:
+                  type: string
+                  description: >-
+                    Human-readable message providing details about the current
+                    phase or any errors encountered.
+                replicas:
+                  type: integer
+                  description: >-
+                    The number of replicas currently running and ready to
+                    serve traffic.

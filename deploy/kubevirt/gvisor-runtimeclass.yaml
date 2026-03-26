@@ -1,0 +1,29 @@
+# gVisor RuntimeClass for non-GPU workload sandboxing.
+#
+# gVisor (runsc) provides a user-space kernel that intercepts system calls,
+# adding an extra layer of isolation between tenant workloads and the host.
+#
+# IMPORTANT LIMITATIONS:
+#   - gVisor does NOT support GPU passthrough (no NVIDIA device access)
+#   - Only use for CPU-only workloads (web apps, APIs, untrusted code)
+#   - GPU workloads must use the default 'runc' runtime
+#
+# Prerequisites:
+#   - gVisor (runsc) must be installed on all CPU worker nodes
+#   - containerd must be configured with a 'runsc' runtime handler
+#   - See: https://gvisor.dev/docs/user_guide/install/
+#
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: gvisor
+handler: runsc
+scheduling:
+  # Only schedule gVisor workloads on CPU nodes (not GPU nodes)
+  nodeSelector:
+    nodepool: cpu
+overhead:
+  # gVisor has a small per-pod overhead
+  podFixed:
+    cpu: "50m"
+    memory: "64Mi"

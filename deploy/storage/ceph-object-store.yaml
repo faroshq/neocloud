@@ -1,0 +1,72 @@
+# CephObjectStore - S3-compatible object storage
+#
+# This resource deploys a Ceph RADOS Gateway (RGW) providing an S3-compatible
+# API for object storage. It is used for:
+#   - Tenant blob/object storage (via ObjectBucketClaims)
+#   - Backup storage targets (Velero, database backups)
+#   - Container image registries
+#   - Any workload requiring S3-compatible storage
+#
+# The RGW gateway runs as a Kubernetes deployment managed by Rook, with
+# load balancing handled by a Kubernetes Service.
+#
+# Prerequisites:
+#   - Rook-Ceph operator and CephCluster deployed in rook-ceph namespace
+#   - Sufficient OSDs to satisfy the replication requirements
+---
+apiVersion: ceph.rook.io/v1
+kind: CephObjectStore
+metadata:
+  name: tenant-store
+  namespace: rook-ceph
+spec:
+  # --- Metadata Pool ---
+  # Stores bucket metadata (bucket listings, user info, access keys).
+  # Triple replication ensures metadata availability even if a node fails.
+  metadataPool:
+    failureDomain: host
+    replicated:
+      size: 3
+
+  # --- Data Pool ---
+  # Stores the actual object data (file contents).
+  # Triple replication matches the metadata pool for consistent durability.
+  # For large-scale deployments, consider erasure coding (e.g., 4+2) on the
+  # data pool to reduce storage overhead while maintaining fault tolerance:
+  #   erasureCoded:
+  #     dataChunks: 4
+  #     codingChunks: 2
+  dataPool:
+    failureDomain: host
+    replicated:
+      size: 3
+
+  # --- Gateway (RGW) Configuration ---
+  # The gateway pods serve the S3 API. Multiple instances provide high
+  # availability and load distribution.
+  gateway:
+    # Port for the RGW HTTP endpoint.
+    # For production, consider enabling TLS:
+    #   securePort: 443
+    #   sslCertificateRef: <secret-name>
+    port: 80
+
+    # Number of RGW pod replicas.
+    # 2 instances provide basic HA; scale up for higher throughput.
+    instances: 2
+
+    # Resource requests and limits for RGW pods.
+    # Adjust based on expected object store throughput.
+    # resources:
+    #   requests:
+    #     cpu: "500m"
+    #     memory: "1Gi"
+    #   limits:
+    #     cpu: "2"
+    #     memory: "2Gi"
+
+  # --- Health Check ---
+  # Rook periodically checks the RGW health endpoint.
+  healthCheck:
+    startupProbe:
+      disabled: false

@@ -1,0 +1,41 @@
+# Quota Admission Webhook
+#
+# Validates resource creation in KCP tenant workspaces against OpenMeter entitlements.
+# When a tenant tries to create a Compute, VM, Notebook, or GPUJob, the webhook
+# checks whether the tenant's plan allows it (quota not exceeded, billing active).
+#
+# Rejection returns a clear error message with:
+#   - Current usage vs limit
+#   - Link to upgrade page
+#
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: quota-check
+  annotations:
+    cert-manager.io/inject-ca-from: platform-operators/quota-controller-tls
+webhooks:
+  - name: quota.cloud.example
+    clientConfig:
+      service:
+        name: quota-controller
+        namespace: platform-operators
+        path: /validate
+        port: 8443
+    rules:
+      - apiGroups: ["compute.cloud.example"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["computes", "virtualmachines"]
+      - apiGroups: ["ai.cloud.example"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["notebooks", "gpujobs"]
+      - apiGroups: ["storage.cloud.example"]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["volumes", "objectbuckets"]
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Fail
+    timeoutSeconds: 10

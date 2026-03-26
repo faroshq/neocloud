@@ -1,0 +1,25 @@
+# ============================================================================
+# APIExport: storage
+# ============================================================================
+# Exposes the storage API group resources to tenants via KCP's API export
+# mechanism. Tenants can bind to this APIExport to gain access to Volume
+# and ObjectBucket resources in their workspaces.
+#
+# The APIExport references the latest versions of the APIResourceSchemas
+# for all storage-related resources. When schemas are updated, tenants
+# automatically receive the new API definitions.
+# ============================================================================
+apiVersion: apis.kcp.io/v1alpha1
+kind: APIExport
+metadata:
+  # Name of the APIExport, used by tenants when creating APIBindings
+  name: storage
+spec:
+  # List of APIResourceSchema names that are part of this export.
+  # These schemas define the resource types available to tenants
+  # who bind to this APIExport.
+  latestResourceSchemas:
+    # Volume: persistent block storage volumes
+    - volumes.storage.cloud.example
+    # ObjectBucket: S3-compatible object storage buckets
+    - objectbuckets.storage.cloud.example

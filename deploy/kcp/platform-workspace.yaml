@@ -1,0 +1,35 @@
+# =============================================================================
+# Platform Workspace Setup
+# =============================================================================
+#
+# KCP workspaces are managed via the `kubectl ws` plugin, not via static YAML
+# manifests. The workspace hierarchy is created imperatively using CLI commands.
+#
+# This file documents the required workspace structure. To execute the setup,
+# run the companion script:
+#
+#   ./deploy/kcp/setup-platform-workspace.sh
+#
+# Workspace hierarchy after setup:
+#
+#   root
+#   └── platform          (type: universal)
+#       ├── APIs, bindings, and platform-level resources live here
+#       └── tenant workspaces are created under this workspace
+#
+# The "platform" workspace serves as the organizational boundary for all
+# platform-level resources:
+#   - APIExport/APIBinding definitions for tenant APIs
+#   - Platform operator deployments (via syncer)
+#   - Shared configuration (quotas, policies, etc.)
+#
+# Workspace type "universal" allows both organizational and API hosting
+# capabilities, making it suitable as the platform root.
+#
+# Prerequisites:
+#   - KCP is running and accessible
+#   - kubectl ws plugin is installed
+#   - KUBECONFIG points to the KCP admin kubeconfig
+#     (see deploy/kcp/kcp-installation.yaml for how to extract it)
+#
+# =============================================================================

@@ -1,0 +1,112 @@
+# ============================================================================
+# APIResourceSchema: Volume
+# ============================================================================
+# Defines the Volume resource type in the storage.cloud.example API group.
+# A Volume resource represents a persistent block storage volume that can be
+# attached to Compute or VirtualMachine instances.
+#
+# Volumes are reconciled by the storage-operator, which provisions actual
+# storage on the underlying infrastructure (e.g., Ceph, local NVMe).
+# ============================================================================
+apiVersion: apis.kcp.io/v1alpha1
+kind: APIResourceSchema
+metadata:
+  # Name follows the KCP convention: <plural>.<group>
+  name: volumes.storage.cloud.example
+spec:
+  # The API group this resource belongs to
+  group: storage.cloud.example
+  names:
+    # The kind used in resource manifests
+    kind: Volume
+    # The plural form used in API URLs
+    plural: volumes
+    # The singular form used in CLI output and help text
+    singular: volume
+    # Short names for kubectl convenience (e.g., kubectl get vol)
+    shortNames:
+      - vol
+  # Resources are namespaced to support multi-tenancy isolation
+  scope: Namespaced
+  versions:
+    - name: v1
+      # This is the version served by the API server
+      served: true
+      # This is the version used for storage
+      storage: true
+      # Subresources configuration
+      subresources:
+        # Enable the /status subresource so that status updates can be
+        # performed separately from spec updates (typically by the operator)
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: >-
+            Volume represents a persistent block storage volume. Tenants
+            create Volume resources to provision storage that can be
+            attached to Compute or VirtualMachine instances.
+          properties:
+            # ----------------------------------------------------------------
+            # spec: Desired state of the Volume
+            # ----------------------------------------------------------------
+            spec:
+              type: object
+              description: Desired state of the Volume
+              required:
+                - size
+              properties:
+                # Size of the volume
+                size:
+                  type: string
+                  description: >-
+                    Size of the volume in Kubernetes resource format
+                    (e.g., "10Gi", "100Gi", "1Ti").
+                # Storage class determines the underlying storage type
+                storageClass:
+                  type: string
+                  description: >-
+                    Storage class for the volume. Determines the underlying
+                    storage technology and performance characteristics.
+                    "ssd" provides high-performance NVMe storage, while
+                    "hdd" provides cost-effective spinning disk storage.
+                  enum:
+                    - ssd
+                    - hdd
+                  default: "ssd"
+                # Access mode controls how the volume can be mounted
+                accessMode:
+                  type: string
+                  description: >-
+                    Access mode for the volume. ReadWriteOnce allows the
+                    volume to be mounted by a single instance, while
+                    ReadWriteMany allows concurrent access from multiple
+                    instances.
+                  enum:
+                    - ReadWriteOnce
+                    - ReadWriteMany
+                  default: "ReadWriteOnce"
+            # ----------------------------------------------------------------
+            # status: Observed state of the Volume (set by operator)
+            # ----------------------------------------------------------------
+            status:
+              type: object
+              description: >-
+                Observed state of the Volume, populated by the
+                storage-operator.
+              properties:
+                phase:
+                  type: string
+                  description: >-
+                    Current lifecycle phase of the volume
+                    (e.g., Pending, Provisioning, Available, Bound, Failed).
+                volumeID:
+                  type: string
+                  description: >-
+                    Unique identifier of the provisioned volume on the
+                    underlying storage system.
+                message:
+                  type: string
+                  description: >-
+                    Human-readable message providing details about the
+                    current phase or any errors encountered.

@@ -1,0 +1,97 @@
+# Network Operator
+#
+# Reconciles PublicIP resources from KCP tenant workspaces
+# into Cilium LoadBalancer Services on the workload cluster.
+#
+# The operator:
+#   1. Watches KCP virtual workspace for tenant PublicIP CRs
+#   2. Creates/updates Cilium LoadBalancer Services in tenant namespace on workload cluster
+#   3. Updates status back in KCP (phase, URL, endpoints)
+#   4. Emits usage events to OpenMeter for billing
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: network-operator
+  namespace: platform-operators
+  labels:
+    app: network-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: network-operator
+  template:
+    metadata:
+      labels:
+        app: network-operator
+    spec:
+      serviceAccountName: network-operator
+      containers:
+        - name: operator
+          image: ghcr.io/faroshq/network-operator:latest
+          args:
+            - --kcp-kubeconfig=/etc/kcp/kubeconfig
+            - --workload-kubeconfig=/etc/workload/kubeconfig
+            - --openmeter-url=http://openmeter.openmeter.svc:8888
+          env:
+            - name: OPENMETER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openmeter-credentials
+                  key: token
+          ports:
+            - containerPort: 8080
+              name: metrics
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: kcp-kubeconfig
+              mountPath: /etc/kcp
+              readOnly: true
+            - name: workload-kubeconfig
+              mountPath: /etc/workload
+              readOnly: true
+      volumes:
+        - name: kcp-kubeconfig
+          secret:
+            secretName: kcp-operator-kubeconfig
+        - name: workload-kubeconfig
+          secret:
+            secretName: workload-kubeconfig
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: network-operator
+  namespace: platform-operators
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: network-operator
+  namespace: platform-operators
+spec:
+  selector:
+    app: network-operator
+  ports:
+    - port: 8080
+      targetPort: metrics
+      name: metrics

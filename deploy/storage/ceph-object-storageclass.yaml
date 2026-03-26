@@ -1,0 +1,32 @@
+# StorageClass - Ceph Object Bucket Claims (OBC)
+#
+# This StorageClass enables dynamic provisioning of S3-compatible buckets
+# via ObjectBucketClaim resources. When a tenant creates an OBC, the
+# Rook OBC provisioner:
+#   1. Creates a bucket in the CephObjectStore
+#   2. Creates an RGW user with access restricted to that bucket
+#   3. Provisions a Secret (with access key and secret key) and a ConfigMap
+#      (with bucket name and endpoint) in the requesting namespace
+#
+# Tenants can then use the credentials to access their bucket via any
+# S3-compatible client or SDK.
+#
+# Prerequisites:
+#   - CephObjectStore "tenant-store" deployed (see ceph-object-store.yaml)
+#   - Rook OBC provisioner running (deployed automatically by Rook)
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ceph-bucket
+provisioner: rook-ceph.ceph.rook.io/bucket
+parameters:
+  # The CephObjectStore that backs this StorageClass.
+  objectStoreName: tenant-store
+  # The namespace where the CephObjectStore is deployed.
+  objectStoreNamespace: rook-ceph
+
+# Buckets are logical and do not have a reclaim equivalent to PVs.
+# "Delete" means the bucket and its contents are removed when the OBC is deleted.
+# Use caution: there is no "Retain" safety net for object data.
+reclaimPolicy: Delete

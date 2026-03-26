@@ -1,0 +1,20 @@
+# =============================================================================
+# OpenMeter Namespace
+# =============================================================================
+#
+# Dedicated namespace for the OpenMeter metering and billing stack.
+# All OpenMeter components (API server, collector, Kafka/Redpanda consumer)
+# and their associated secrets live here.
+#
+# Apply:
+#   kubectl apply -f namespace.yaml
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openmeter
+  labels:
+    app.kubernetes.io/part-of: openmeter
+    # Enforce pod security standards.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted

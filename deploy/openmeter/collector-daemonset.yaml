@@ -1,0 +1,121 @@
+# =============================================================================
+# OpenMeter Kubernetes Collector — DaemonSet
+# =============================================================================
+#
+# Deployment target: each workload cluster
+#
+# The collector runs on every node and scrapes kubelet metrics (pod CPU, memory,
+# GPU allocations) at a configurable interval. It translates them into OpenMeter
+# usage events and sends them to the central OpenMeter API on the management
+# cluster.
+#
+# Prerequisites:
+#   - The ServiceAccount and RBAC from collector-rbac.yaml must be applied first.
+#   - A Secret named "openmeter-collector" must exist in the openmeter namespace
+#     with the key OPENMETER_TOKEN containing a valid ingest API token.
+#
+# Apply:
+#   kubectl apply -f collector-rbac.yaml
+#   kubectl apply -f collector-daemonset.yaml
+# =============================================================================
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: openmeter-collector
+  namespace: openmeter
+  labels:
+    app.kubernetes.io/name: openmeter-collector
+    app.kubernetes.io/component: collector
+    app.kubernetes.io/part-of: openmeter
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openmeter-collector
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: openmeter-collector
+        app.kubernetes.io/component: collector
+        app.kubernetes.io/part-of: openmeter
+    spec:
+      serviceAccountName: openmeter-collector
+
+      # Tolerate all taints so the collector runs on every node, including
+      # GPU nodes and control-plane nodes.
+      tolerations:
+        - operator: Exists
+
+      # Run on Linux nodes only.
+      nodeSelector:
+        kubernetes.io/os: linux
+
+      containers:
+        - name: collector
+          image: ghcr.io/openmeterio/kubernetes-collector:latest
+          imagePullPolicy: Always
+
+          env:
+            # -----------------------------------------------------------------
+            # OPENMETER_URL — the OpenMeter API endpoint on the management
+            # cluster. Adjust if the management cluster is external.
+            # -----------------------------------------------------------------
+            - name: OPENMETER_URL
+              value: "http://openmeter-api.openmeter.svc:8888"
+
+            # -----------------------------------------------------------------
+            # OPENMETER_TOKEN — ingest API token, read from a Secret.
+            # -----------------------------------------------------------------
+            - name: OPENMETER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openmeter-collector
+                  key: OPENMETER_TOKEN
+
+            # -----------------------------------------------------------------
+            # SCRAPE_INTERVAL — how often the collector scrapes kubelet metrics.
+            # 15 minutes balances resolution with API load.
+            # -----------------------------------------------------------------
+            - name: SCRAPE_INTERVAL
+              value: "15m"
+
+            # -----------------------------------------------------------------
+            # NODE_NAME — injected from the downward API so the collector knows
+            # which node it is running on and can scope its kubelet queries.
+            # -----------------------------------------------------------------
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+          # -------------------------------------------------------------------
+          # Resource requests and limits
+          # -------------------------------------------------------------------
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+
+          # -------------------------------------------------------------------
+          # Security context — run as non-root, read-only filesystem.
+          # -------------------------------------------------------------------
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+      # Restart policy for DaemonSet pods.
+      restartPolicy: Always
+
+      # Terminate quickly to avoid blocking node drains.
+      terminationGracePeriodSeconds: 30

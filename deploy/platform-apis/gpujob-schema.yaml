@@ -1,0 +1,184 @@
+# ============================================================================
+# APIResourceSchema: GPUJob
+# ============================================================================
+# Defines the GPUJob resource type in the ai.cloud.example API group.
+# A GPUJob resource represents a batch GPU compute job that runs to completion.
+# Tenants create GPUJob resources to run training, inference, or other
+# GPU-intensive workloads on the platform.
+#
+# GPUJobs are reconciled by the gpujob-operator, which manages job scheduling,
+# GPU allocation, and lifecycle on the underlying infrastructure.
+# ============================================================================
+apiVersion: apis.kcp.io/v1alpha1
+kind: APIResourceSchema
+metadata:
+  # Name follows the KCP convention: <plural>.<group>
+  name: gpujobs.ai.cloud.example
+spec:
+  # The API group this resource belongs to
+  group: ai.cloud.example
+  names:
+    # The kind used in resource manifests
+    kind: GPUJob
+    # The plural form used in API URLs
+    plural: gpujobs
+    # The singular form used in CLI output and help text
+    singular: gpujob
+    # Short names for kubectl convenience (e.g., kubectl get gj)
+    shortNames:
+      - gj
+  # Resources are namespaced to support multi-tenancy isolation
+  scope: Namespaced
+  versions:
+    - name: v1
+      # This is the version served by the API server
+      served: true
+      # This is the version used for storage
+      storage: true
+      # Subresources configuration
+      subresources:
+        # Enable the /status subresource so that status updates can be
+        # performed separately from spec updates (typically by the operator)
+        status: {}
+      # Additional columns shown in kubectl get output
+      additionalPrinterColumns:
+        - name: Status
+          type: string
+          description: Current phase of the GPU job
+          jsonPath: .status.phase
+        - name: GPU
+          type: integer
+          description: Number of GPUs requested
+          jsonPath: .spec.gpu.count
+        - name: Age
+          type: date
+          description: Time since the resource was created
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: >-
+            GPUJob represents a batch GPU compute job. Tenants create GPUJob
+            resources to run training, inference, or other GPU-intensive
+            workloads that run to completion.
+          properties:
+            # ----------------------------------------------------------------
+            # spec: Desired state of the GPUJob
+            # ----------------------------------------------------------------
+            spec:
+              type: object
+              description: Desired state of the GPUJob
+              required:
+                - image
+                - gpu
+              properties:
+                # The container image to run for the job
+                image:
+                  type: string
+                  description: >-
+                    Container image to run for the GPU job. Should include
+                    all necessary ML frameworks and dependencies
+                    (e.g., pytorch/pytorch:2.0-cuda11.7).
+                # Command to execute in the container
+                command:
+                  type: array
+                  description: >-
+                    Command to execute in the container. If not specified,
+                    the image's default entrypoint is used.
+                  items:
+                    type: string
+                # GPU configuration (required for GPU jobs)
+                gpu:
+                  type: object
+                  description: >-
+                    GPU configuration for the job. At least 1 GPU is required
+                    for GPUJob resources.
+                  required:
+                    - count
+                  properties:
+                    count:
+                      type: integer
+                      description: >-
+                        Number of GPU devices to allocate for the job.
+                        Must be between 1 and 8 inclusive.
+                      minimum: 1
+                      maximum: 8
+                # CPU and memory resources for the job
+                resources:
+                  type: object
+                  description: >-
+                    CPU and memory resources for the job pod. GPU jobs
+                    typically require substantial CPU and memory alongside
+                    GPU resources.
+                  properties:
+                    cpu:
+                      type: string
+                      description: >-
+                        CPU request in Kubernetes resource format
+                        (e.g., "4", "8", "16").
+                      default: "4"
+                    memory:
+                      type: string
+                      description: >-
+                        Memory request in Kubernetes resource format
+                        (e.g., "16Gi", "32Gi", "64Gi").
+                      default: "16Gi"
+                # Maximum duration for the job
+                timeout:
+                  type: string
+                  description: >-
+                    Maximum duration for the job before it is terminated.
+                    Uses Go duration format (e.g., "1h", "30m", "2h30m").
+                    Jobs exceeding this timeout will be marked as Failed.
+                  default: "1h"
+                # Number of completions required
+                completions:
+                  type: integer
+                  description: >-
+                    Number of successful completions required before the
+                    job is considered done. Useful for hyperparameter
+                    sweeps or distributed training.
+                  default: 1
+                # Maximum number of pods running in parallel
+                parallelism:
+                  type: integer
+                  description: >-
+                    Maximum number of pods running in parallel. Controls
+                    how many completions can execute concurrently.
+                  default: 1
+            # ----------------------------------------------------------------
+            # status: Observed state of the GPUJob (set by operator)
+            # ----------------------------------------------------------------
+            status:
+              type: object
+              description: >-
+                Observed state of the GPUJob, populated by the
+                gpujob-operator.
+              properties:
+                phase:
+                  type: string
+                  description: Current lifecycle phase of the GPU job
+                  enum:
+                    - Pending
+                    - Queued
+                    - Running
+                    - Succeeded
+                    - Failed
+                startTime:
+                  type: string
+                  description: >-
+                    Timestamp when the job started executing. Set when
+                    the job transitions to Running phase.
+                  format: date-time
+                completionTime:
+                  type: string
+                  description: >-
+                    Timestamp when the job completed (either successfully
+                    or with failure). Set when the job reaches a terminal
+                    phase.
+                  format: date-time
+                message:
+                  type: string
+                  description: >-
+                    Human-readable message providing details about the
+                    current phase, progress, or any errors encountered.

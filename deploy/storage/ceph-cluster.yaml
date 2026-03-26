@@ -1,0 +1,116 @@
+# CephCluster - Rook-managed Ceph storage cluster
+#
+# This resource defines the Ceph cluster deployed and managed by the Rook operator.
+# It provisions monitors, managers, OSDs, and the Ceph dashboard across designated
+# storage nodes.
+#
+# Prerequisites:
+#   - Rook operator installed in the rook-ceph namespace
+#   - Nodes labeled and available with raw block devices (sdb, sdc)
+#   - Each storage node should have at least 2Gi memory available for OSD processes
+#
+# Architecture:
+#   - 3 monitors provide quorum and cluster state consensus (odd number required)
+#   - 2 managers handle metrics, dashboard, and orchestration modules
+#   - OSDs run on explicit nodes with dedicated block devices
+#
+# Storage nodes:
+#   cpu-node-1, cpu-node-2, cpu-node-3 each contribute sdb and sdc devices,
+#   giving 6 OSDs total. With a replication factor of 3, usable capacity is
+#   roughly 1/3 of raw capacity.
+---
+apiVersion: ceph.rook.io/v1
+kind: CephCluster
+metadata:
+  name: rook-ceph
+  namespace: rook-ceph
+spec:
+  # Ceph v19 (Squid) container image.
+  # Pin to a specific minor version in production to avoid unexpected upgrades.
+  cephVersion:
+    image: quay.io/ceph/ceph:v19
+    allowUnsupported: false
+
+  # Data directory on the host where Ceph configuration and keyring files are stored.
+  dataDirHostPath: /var/lib/rook
+
+  # --- Monitors ---
+  # Monitors maintain the cluster map and require a quorum (majority).
+  # 3 monitors tolerate the loss of 1 node while maintaining quorum.
+  # For larger clusters, 5 monitors can be used to tolerate 2 failures.
+  mon:
+    count: 3
+    allowMultiplePerNode: false
+
+  # --- Managers ---
+  # Managers run ancillary services: dashboard, Prometheus metrics, balancer, etc.
+  # 2 managers provide active/standby high availability.
+  mgr:
+    count: 2
+    allowMultiplePerNode: false
+    modules:
+      # The balancer module distributes PGs evenly across OSDs.
+      - name: balancer
+        enabled: true
+      # The Prometheus module exposes Ceph metrics on port 9283.
+      - name: prometheus
+        enabled: true
+
+  # --- Dashboard ---
+  # The Ceph dashboard provides a web UI for monitoring cluster health,
+  # pool usage, OSD status, and more.
+  dashboard:
+    enabled: true
+    # Serve over HTTPS using a self-signed certificate (or provide your own).
+    ssl: true
+
+  # --- Network ---
+  # Use host networking if dedicated storage network interfaces are available.
+  # For overlay networks (Cilium, Calico), leave this commented out.
+  # network:
+  #   provider: host
+
+  # --- Crash Collector ---
+  # Collects Ceph daemon crash reports for debugging.
+  crashCollector:
+    disable: false
+
+  # --- Storage Configuration ---
+  # useAllNodes: false  - Only nodes listed below will run OSDs.
+  # useAllDevices: false - Only explicitly listed devices are consumed.
+  # This gives precise control over which disks are used for Ceph storage,
+  # preventing accidental consumption of OS or data disks.
+  storage:
+    useAllNodes: false
+    useAllDevices: false
+
+    # Each node contributes two raw block devices (sdb, sdc) as OSDs.
+    # Ensure these devices are clean (no partitions, no filesystems) before
+    # deploying. Rook will format and manage them.
+    nodes:
+      - name: cpu-node-1
+        devices:
+          - name: sdb
+          - name: sdc
+      - name: cpu-node-2
+        devices:
+          - name: sdb
+          - name: sdc
+      - name: cpu-node-3
+        devices:
+          - name: sdb
+          - name: sdc
+
+  # --- Resource Requests for OSD Pods ---
+  # OSD pods are the most resource-intensive Ceph components.
+  # These requests ensure the Kubernetes scheduler places them on nodes
+  # with sufficient capacity. Adjust limits based on workload I/O patterns.
+  resources:
+    osd:
+      requests:
+        cpu: "500m"
+        memory: "2Gi"
+      # Limits can be set to prevent noisy-neighbor issues:
+      # limits:
+      #   cpu: "2"
+      #   memory: "4Gi"

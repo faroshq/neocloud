@@ -1,0 +1,146 @@
+# =============================================================================
+# OpenMeter Helm Values
+# =============================================================================
+#
+# Deployment target: management cluster (namespace: openmeter)
+#
+# OpenMeter provides usage-based metering and billing for the sovereign cloud
+# platform. It ingests usage events (CPU, memory, GPU) from workload-cluster
+# collectors, aggregates them in ClickHouse, and exposes them via its API for
+# billing integrations (Stripe, custom invoicing, etc.).
+#
+# Install:
+#   helm upgrade --install openmeter openmeter/openmeter \
+#     -n openmeter --create-namespace -f helm-values.yaml
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# OpenMeter API server
+# ---------------------------------------------------------------------------
+server:
+  # Address the API server listens on.
+  address: ":8888"
+
+# ---------------------------------------------------------------------------
+# Kafka / Redpanda — event streaming backbone
+# ---------------------------------------------------------------------------
+# Usage events flow: collector -> Kafka -> OpenMeter consumer -> ClickHouse.
+# Adjust broker addresses to match your Redpanda / Kafka deployment.
+kafka:
+  brokers:
+    - redpanda.openmeter.svc:9093
+  # Security protocol — use SASL_SSL in production.
+  securityProtocol: PLAINTEXT
+  # Topic prefix for OpenMeter events.
+  topicPrefix: "om_"
+  # Consumer group for the OpenMeter ingest consumer.
+  consumerGroupId: "openmeter-ingest"
+  # Number of partitions for the events topic (scale with throughput).
+  partitions: 6
+
+# ---------------------------------------------------------------------------
+# ClickHouse — aggregated metrics storage
+# ---------------------------------------------------------------------------
+# ClickHouse stores the windowed aggregations that power the metering API.
+clickhouse:
+  address: clickhouse.openmeter.svc:9000
+  database: openmeter
+  username: openmeter
+  # Password is read from a Kubernetes Secret; set via extraEnv or secretRef.
+  # password: ""
+  tls:
+    enabled: false
+
+# ---------------------------------------------------------------------------
+# PostgreSQL — application metadata (plans, subscriptions, customers)
+# ---------------------------------------------------------------------------
+postgres:
+  url: "postgres://openmeter:changeme@postgres.openmeter.svc:5432/openmeter?sslmode=disable"
+  # In production, supply the URL via a Secret:
+  # url: ""
+  # existingSecret: openmeter-postgres
+  # existingSecretKey: url
+
+# ---------------------------------------------------------------------------
+# Meters — define what gets metered
+# ---------------------------------------------------------------------------
+# Each meter specifies an event type, aggregation method, and unit.
+# The groupBy fields determine the cardinality of the time-series windows.
+meters:
+  # -------------------------------------------------------------------------
+  # CPU usage — aggregated as core-seconds
+  # -------------------------------------------------------------------------
+  # One core running for one second = 1 core-second.
+  # Collectors report cumulative CPU usage per pod; OpenMeter sums it by
+  # tenant, workspace, and workload type.
+  - slug: cpu_usage
+    description: "Cumulative CPU consumption in core-seconds"
+    eventType: cpu_usage
+    aggregation: SUM
+    valueProperty: "$.duration_seconds"
+    unit: "core-seconds"
+    groupBy:
+      - tenant_id
+      - workspace
+      - workload_type
+
+  # -------------------------------------------------------------------------
+  # Memory usage — aggregated as GB-seconds
+  # -------------------------------------------------------------------------
+  # One GB of memory held for one second = 1 GB-second.
+  - slug: memory_usage
+    description: "Cumulative memory consumption in GB-seconds"
+    eventType: memory_usage
+    aggregation: SUM
+    valueProperty: "$.duration_seconds"
+    unit: "GB-seconds"
+    groupBy:
+      - tenant_id
+      - workspace
+      - workload_type
+
+  # -------------------------------------------------------------------------
+  # GPU usage — aggregated as GPU-seconds
+  # -------------------------------------------------------------------------
+  # One GPU allocated for one second = 1 GPU-second.
+  # Additional groupBy on gpu_model allows per-SKU pricing (e.g. A100 vs H100).
+  - slug: gpu_usage
+    description: "Cumulative GPU consumption in GPU-seconds"
+    eventType: gpu_usage
+    aggregation: SUM
+    valueProperty: "$.duration_seconds"
+    unit: "GPU-seconds"
+    groupBy:
+      - tenant_id
+      - workspace
+      - workload_type
+      - gpu_model
+
+# ---------------------------------------------------------------------------
+# Stripe integration — for payment processing
+# ---------------------------------------------------------------------------
+# Stripe credentials are intentionally left empty here. Provide them via a
+# Kubernetes Secret named "openmeter-stripe" with keys:
+#   STRIPE_API_KEY, STRIPE_WEBHOOK_SECRET
+stripe:
+  apiKey: ""
+  webhookSecret: ""
+  # existingSecret: openmeter-stripe
+
+# ---------------------------------------------------------------------------
+# Portal — self-service tenant portal for usage visibility
+# ---------------------------------------------------------------------------
+portal:
+  enabled: true
+  # tokenSecret: ""  # JWT signing secret; generate and store in a Secret.
+
+# ---------------------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------------------
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi

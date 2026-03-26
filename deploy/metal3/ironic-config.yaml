@@ -1,0 +1,35 @@
+# Ironic configuration for Metal3 bare metal provisioning.
+# This ConfigMap is consumed by the Ironic deployment to configure the
+# provisioning network, DHCP range, and kernel boot parameters.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ironic-config
+  namespace: baremetal-operator-system
+  labels:
+    app.kubernetes.io/name: ironic
+    app.kubernetes.io/part-of: metal3
+    app.kubernetes.io/managed-by: sovereign-cloud-ref
+data:
+  # IP address of the Ironic service on the provisioning network.
+  IRONIC_IP: "172.16.20.10"
+
+  # DHCP range served by the Ironic dnsmasq instance during inspection
+  # and provisioning. Must not overlap with statically assigned addresses.
+  DHCP_RANGE: "172.16.20.100,172.16.20.200"
+
+  # Network interface on the Ironic host that is attached to the
+  # provisioning network.
+  PROVISIONING_INTERFACE: "eth1"
+
+  # Extra kernel parameters passed to the IPA (Ironic Python Agent)
+  # ramdisk during inspection and provisioning.
+  IRONIC_KERNEL_PARAMS: "console=ttyS0"
+
+  # Deploy interface used by Ironic to write images to disk.
+  DEPLOY_KERNEL_URL: "http://172.16.20.10:6180/images/ironic-python-agent.kernel"
+  DEPLOY_RAMDISK_URL: "http://172.16.20.10:6180/images/ironic-python-agent.initramfs"
+
+  # Inspector settings.
+  IRONIC_INSPECTOR_VLAN_INTERFACES: "all"
+  IRONIC_FAST_TRACK: "true"

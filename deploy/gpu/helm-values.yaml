@@ -1,0 +1,96 @@
+# NVIDIA GPU Operator - Helm Values
+#
+# These values configure the NVIDIA GPU Operator, which automates the deployment
+# of all software components needed to provision and manage GPUs in Kubernetes:
+#   - NVIDIA driver (kernel module)
+#   - Container toolkit (nvidia-container-runtime)
+#   - Device plugin (exposes nvidia.com/gpu resources)
+#   - DCGM Exporter (GPU metrics for Prometheus)
+#   - GPU Feature Discovery (labels nodes with GPU properties)
+#
+# Installation:
+#   helm install gpu-operator nvidia/gpu-operator \
+#     --namespace gpu-operator --create-namespace \
+#     -f helm-values.yaml
+#
+# Prerequisites:
+#   - Nodes with NVIDIA GPUs
+#   - Kernel headers installed on GPU nodes (for driver compilation)
+#   - Helm repo: helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
+---
+
+# --- NVIDIA Driver ---
+# Installs the NVIDIA kernel driver on GPU nodes as a container.
+# Set enabled: false if the driver is pre-installed on the host OS
+# (e.g., via cloud provider machine images).
+driver:
+  enabled: true
+  # Use a specific driver branch for stability:
+  # version: "550.90.07"
+
+# --- NVIDIA Container Toolkit ---
+# Installs nvidia-container-toolkit which provides the nvidia-container-runtime.
+# This runtime hook injects GPU device files and driver libraries into containers
+# at launch time.
+toolkit:
+  enabled: true
+
+# --- Kubernetes Device Plugin ---
+# Registers nvidia.com/gpu resources with the kubelet, making GPUs schedulable
+# via standard Kubernetes resource requests and limits.
+devicePlugin:
+  enabled: true
+
+# --- DCGM Exporter ---
+# Deploys the NVIDIA Data Center GPU Manager (DCGM) exporter, which exposes
+# GPU metrics (temperature, utilization, memory usage, ECC errors, etc.)
+# as Prometheus metrics on port 9400.
+# These metrics integrate with the observability stack for GPU monitoring
+# and alerting.
+dcgmExporter:
+  enabled: true
+
+# --- GPU Feature Discovery (GFD) ---
+# Labels GPU nodes with detailed GPU properties:
+#   - nvidia.com/gpu.product (e.g., "NVIDIA-A100-SXM4-80GB")
+#   - nvidia.com/gpu.memory (e.g., "81920")
+#   - nvidia.com/cuda.driver.major/minor
+#   - nvidia.com/gpu.count
+# These labels are used by Kueue ResourceFlavors and pod nodeSelectors
+# to schedule workloads to appropriate GPU types.
+gfd:
+  enabled: true
+
+# --- MIG (Multi-Instance GPU) Strategy ---
+# MIG allows partitioning supported GPUs (A100, A30, H100) into isolated
+# GPU instances, each with dedicated compute, memory, and bandwidth.
+#
+# Strategy options:
+#   "none"   - Expose whole GPUs only. Each pod gets an entire GPU.
+#              Best for: single-tenant workloads, maximum per-pod performance.
+#
+#   "single" - Expose MIG devices as resources (e.g., nvidia.com/mig-1g.5gb).
+#              All MIG partitions on a GPU must be the same profile.
+#              Best for: uniform workload sizes, simpler scheduling.
+#
+#   "mixed"  - Expose both whole GPUs and MIG devices simultaneously.
+#              Different GPUs on the same node can have different profiles.
+#              Best for: heterogeneous workloads, maximum flexibility.
+#
+# For v1 of the platform, we use whole GPUs ("none"). MIG can be enabled
+# later when multi-tenant GPU sharing is needed. Switching strategies
+# requires draining GPU nodes and reconfiguring MIG profiles.
+mig:
+  strategy: none
+
+# --- Node Selection ---
+# Restrict GPU Operator components to nodes with GPUs.
+# This prevents unnecessary daemonsets from running on CPU-only nodes.
+# nodeSelector:
+#   gpu: "true"
+
+# --- Sandboxed Workloads ---
+# If using KubeVirt VMs with GPU passthrough, enable the vfio-pci manager:
+# sandboxWorkloads:
+#   enabled: true
+#   defaultWorkload: container

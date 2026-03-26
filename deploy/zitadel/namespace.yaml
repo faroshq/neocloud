@@ -1,0 +1,24 @@
+# =============================================================================
+# Zitadel Namespace
+# =============================================================================
+#
+# Dedicated namespace for the Zitadel identity provider and its dependencies
+# (PostgreSQL, etc.). Isolating Zitadel in its own namespace provides:
+#   - Clear RBAC boundaries for identity infrastructure
+#   - Separate resource quotas and limit ranges
+#   - Easier monitoring and log filtering
+#   - Network policy scoping
+#
+# Apply with:
+#   kubectl apply -f deploy/zitadel/namespace.yaml
+# =============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: zitadel
+  labels:
+    # app.kubernetes.io labels for consistent resource identification
+    app.kubernetes.io/name: zitadel
+    app.kubernetes.io/part-of: sovereign-cloud-ref
+    app.kubernetes.io/component: identity

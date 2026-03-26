@@ -1,0 +1,33 @@
+# Kueue ResourceFlavors
+#
+# ResourceFlavors represent types of compute resources available in the cluster.
+# They map to node groups via nodeLabels, allowing Kueue to schedule workloads
+# to the correct hardware.
+#
+# Two flavors are defined:
+#   - gpu-nodes: Nodes equipped with NVIDIA GPUs (labeled gpu=true)
+#   - cpu-nodes: General-purpose CPU nodes (labeled nodepool=cpu)
+#
+# These flavors are referenced by ClusterQueues to define quotas and
+# resource allocations per hardware type.
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: gpu-nodes
+spec:
+  # Nodes must have the label "gpu=true" to be considered part of this flavor.
+  # The GPU Operator's GFD or manual labeling should ensure GPU nodes carry
+  # this label.
+  nodeLabels:
+    gpu: "true"
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: cpu-nodes
+spec:
+  # General-purpose compute nodes for CPU workloads, control plane components,
+  # and non-GPU tenant workloads.
+  nodeLabels:
+    nodepool: cpu

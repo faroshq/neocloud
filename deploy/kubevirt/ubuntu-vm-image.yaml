@@ -1,0 +1,63 @@
+# CDI DataVolume - Ubuntu 22.04 Cloud Image
+#
+# This DataVolume uses the Containerized Data Importer (CDI) to download
+# the Ubuntu 22.04 (Jammy Jellyfish) cloud image and store it as a
+# persistent volume. The image serves as a base disk for KubeVirt VMs.
+#
+# Cloud images are minimal Ubuntu installations pre-configured for
+# cloud-init, making them ideal for VM templates. VMs clone this
+# DataVolume to create their own root disks.
+#
+# Usage in a VirtualMachine spec:
+#   dataVolumeTemplates:
+#     - metadata:
+#         name: my-vm-rootdisk
+#       spec:
+#         source:
+#           pvc:
+#             namespace: platform-images
+#             name: ubuntu-22.04-cloud
+#         storage:
+#           resources:
+#             requests:
+#               storage: 20Gi
+#           storageClassName: ceph-block
+#
+# Prerequisites:
+#   - CDI operator installed
+#   - ceph-block StorageClass available
+#   - platform-images namespace created
+---
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: DataVolume
+metadata:
+  name: ubuntu-22.04-cloud
+  namespace: platform-images
+  labels:
+    app: vm-images
+    os: ubuntu
+    version: "22.04"
+  annotations:
+    # Prevent garbage collection of this base image.
+    cdi.kubevirt.io/storage.deleteAfterCompletion: "false"
+spec:
+  source:
+    # Download the Ubuntu 22.04 cloud image via HTTP.
+    # This is the official Canonical cloud image in QCOW2 format.
+    # CDI will download and convert it to a raw disk image for use with KubeVirt.
+    http:
+      url: https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img
+
+  storage:
+    resources:
+      requests:
+        # 10Gi is sufficient for the base image (compressed ~700MB, raw ~2.2GB).
+        # The extra space allows for minor OS updates within the base image.
+        # VMs should clone this and resize to their needs (20Gi+).
+        storage: 10Gi
+    # Use the Ceph block StorageClass for the backing PVC.
+    storageClassName: ceph-block
+    # ReadWriteOnce is appropriate for a base image that is cloned, not
+    # shared. Clones create independent PVCs for each VM.
+    accessModes:
+      - ReadWriteOnce

@@ -1,0 +1,83 @@
+# etcd Backup CronJob
+#
+# Takes periodic etcd snapshots for the management cluster.
+# This is critical for KCP data recovery — KCP stores all workspace
+# and tenant data in etcd.
+#
+# Note: For the workload cluster, Cluster API can recreate it from
+# the management cluster state. KCP etcd is the most critical backup target.
+#
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: etcd-backup
+  namespace: kube-system
+spec:
+  schedule: "0 * * * *"              # Every hour
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          hostNetwork: true
+          nodeSelector:
+            node-role.kubernetes.io/control-plane: ""
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              effect: NoSchedule
+          containers:
+            - name: etcd-backup
+              image: registry.k8s.io/etcd:3.5.15-0
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+                  BACKUP_FILE="/backups/etcd-snapshot-${TIMESTAMP}.db"
+
+                  echo "Taking etcd snapshot..."
+                  etcdctl snapshot save "${BACKUP_FILE}" \
+                    --endpoints=https://127.0.0.1:2379 \
+                    --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+                    --cert=/etc/kubernetes/pki/etcd/healthcheck-client.crt \
+                    --key=/etc/kubernetes/pki/etcd/healthcheck-client.key
+
+                  echo "Verifying snapshot..."
+                  etcdctl snapshot status "${BACKUP_FILE}" --write-out=table
+
+                  # Clean up old backups (keep last 24)
+                  ls -t /backups/etcd-snapshot-*.db | tail -n +25 | xargs -r rm -f
+
+                  echo "Backup complete: ${BACKUP_FILE}"
+                  ls -lh "${BACKUP_FILE}"
+              volumeMounts:
+                - name: etcd-certs
+                  mountPath: /etc/kubernetes/pki/etcd
+                  readOnly: true
+                - name: backup-storage
+                  mountPath: /backups
+          volumes:
+            - name: etcd-certs
+              hostPath:
+                path: /etc/kubernetes/pki/etcd
+                type: DirectoryOrCreate
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: etcd-backups
+          restartPolicy: OnFailure
+---
+# PVC for storing etcd backups
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: etcd-backups
+  namespace: kube-system
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi

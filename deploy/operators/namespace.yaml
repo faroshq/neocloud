@@ -1,0 +1,20 @@
+# ============================================================================
+# Namespace: platform-operators
+# ============================================================================
+# Dedicated namespace for all platform operator deployments. Operators run
+# in this namespace on the management cluster and reconcile tenant resources
+# by watching the KCP API server and applying changes to workload clusters.
+#
+# This namespace is isolated from tenant workloads and contains:
+# - Operator deployments (compute, vm, notebook, gpujob, storage, network)
+# - Kubeconfig secrets for accessing KCP and workload clusters
+# - TLS certificates for webhook servers
+# ============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-operators
+  labels:
+    # Label for easy identification of platform infrastructure namespaces
+    app.kubernetes.io/part-of: sovereign-cloud
+    app.kubernetes.io/component: operators

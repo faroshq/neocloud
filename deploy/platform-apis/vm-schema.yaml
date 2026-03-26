@@ -1,0 +1,184 @@
+# ============================================================================
+# APIResourceSchema: VirtualMachine
+# ============================================================================
+# Defines the VirtualMachine resource type in the compute.cloud.example API
+# group. A VirtualMachine resource represents a full virtual machine that
+# tenants can provision with specific CPU, memory, disk, and optional GPU
+# configurations.
+#
+# VMs are reconciled by the vm-operator, which interfaces with the underlying
+# infrastructure (e.g., KubeVirt, Metal3) to provision actual VM instances.
+# ============================================================================
+apiVersion: apis.kcp.io/v1alpha1
+kind: APIResourceSchema
+metadata:
+  # Name follows the KCP convention: <plural>.<group>
+  name: virtualmachines.compute.cloud.example
+spec:
+  # The API group this resource belongs to
+  group: compute.cloud.example
+  names:
+    # The kind used in resource manifests
+    kind: VirtualMachine
+    # The plural form used in API URLs
+    plural: virtualmachines
+    # The singular form used in CLI output and help text
+    singular: virtualmachine
+    # Short names for kubectl convenience (e.g., kubectl get vm)
+    shortNames:
+      - vm
+  # Resources are namespaced to support multi-tenancy isolation
+  scope: Namespaced
+  versions:
+    - name: v1
+      # This is the version served by the API server
+      served: true
+      # This is the version used for storage
+      storage: true
+      # Subresources configuration
+      subresources:
+        # Enable the /status subresource so that status updates can be
+        # performed separately from spec updates (typically by the operator)
+        status: {}
+      # Additional columns shown in kubectl get output
+      additionalPrinterColumns:
+        - name: Status
+          type: string
+          description: Current phase of the virtual machine
+          jsonPath: .status.phase
+        - name: Cores
+          type: integer
+          description: Number of CPU cores allocated
+          jsonPath: .spec.cores
+        - name: Memory
+          type: string
+          description: Amount of memory allocated
+          jsonPath: .spec.memory
+        - name: GPU
+          type: integer
+          description: Number of GPUs attached
+          jsonPath: .spec.gpu.count
+        - name: Age
+          type: date
+          description: Time since the resource was created
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: >-
+            VirtualMachine represents a full virtual machine instance.
+            Tenants create VirtualMachine resources to provision VMs with
+            specific hardware configurations on the platform.
+          properties:
+            # ----------------------------------------------------------------
+            # spec: Desired state of the VirtualMachine
+            # ----------------------------------------------------------------
+            spec:
+              type: object
+              description: Desired state of the VirtualMachine
+              required:
+                - cores
+                - memory
+                - disk
+              properties:
+                # Number of CPU cores for the VM
+                cores:
+                  type: integer
+                  description: >-
+                    Number of virtual CPU cores to allocate. Must be between
+                    1 and 64 inclusive.
+                  minimum: 1
+                  maximum: 64
+                # Amount of memory for the VM
+                memory:
+                  type: string
+                  description: >-
+                    Amount of memory to allocate in Kubernetes resource format
+                    (e.g., "4Gi", "16Gi", "64Gi").
+                # Disk configuration
+                disk:
+                  type: object
+                  description: >-
+                    Root disk configuration for the virtual machine, including
+                    size and base operating system image.
+                  required:
+                    - size
+                    - image
+                  properties:
+                    size:
+                      type: string
+                      description: >-
+                        Size of the root disk in Kubernetes resource format
+                        (e.g., "50Gi", "200Gi").
+                    image:
+                      type: string
+                      description: >-
+                        Base operating system image to use for the VM. Must be
+                        one of the platform-supported images.
+                      enum:
+                        - ubuntu-22.04
+                        - ubuntu-24.04
+                        - debian-12
+                        - flatcar
+                # Optional GPU configuration
+                gpu:
+                  type: object
+                  description: >-
+                    Optional GPU configuration. When specified, the VM will
+                    be scheduled on a GPU-capable node and have GPU devices
+                    attached.
+                  properties:
+                    count:
+                      type: integer
+                      description: >-
+                        Number of GPU devices to attach to the VM. Set to 0
+                        for no GPU (default).
+                      default: 0
+                      minimum: 0
+                      maximum: 8
+                # SSH access configuration
+                ssh:
+                  type: object
+                  description: >-
+                    SSH access configuration. Provide a public key to enable
+                    SSH access to the VM.
+                  properties:
+                    publicKey:
+                      type: string
+                      description: >-
+                        SSH public key to inject into the VM for remote access.
+                        The key will be added to the default user's
+                        authorized_keys file.
+            # ----------------------------------------------------------------
+            # status: Observed state of the VirtualMachine (set by operator)
+            # ----------------------------------------------------------------
+            status:
+              type: object
+              description: >-
+                Observed state of the VirtualMachine, populated by the
+                vm-operator.
+              properties:
+                phase:
+                  type: string
+                  description: >-
+                    Current lifecycle phase of the virtual machine
+                    (e.g., Pending, Provisioning, Running, Stopped, Failed).
+                sshEndpoint:
+                  type: string
+                  description: >-
+                    SSH endpoint for accessing the VM, in host:port format.
+                    Only set when the VM is running and SSH is configured.
+                tunnelEndpoint:
+                  type: string
+                  description: >-
+                    Tunnel endpoint for accessing the VM through the platform
+                    proxy, useful when direct SSH is not available.
+                internalIP:
+                  type: string
+                  description: >-
+                    Internal IP address of the VM within the platform network.
+                message:
+                  type: string
+                  description: >-
+                    Human-readable message providing details about the current
+                    phase or any errors encountered.

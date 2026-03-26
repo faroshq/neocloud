@@ -1,0 +1,76 @@
+# StorageClass - Ceph RBD (RADOS Block Device)
+#
+# This StorageClass provisions block volumes via the Ceph CSI RBD driver.
+# It is set as the default StorageClass so that PVCs without an explicit
+# storageClassName automatically use Ceph block storage.
+#
+# Volumes created by this class are RWO (ReadWriteOnce) by default and
+# support online expansion (allowVolumeExpansion: true).
+#
+# Prerequisites:
+#   - Rook-Ceph operator and CephCluster deployed in rook-ceph namespace
+#   - CephBlockPool "replicapool" created (see ceph-block-pool.yaml)
+#   - Ceph CSI driver pods running (provisioned automatically by Rook)
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ceph-block
+  annotations:
+    # Set as the default StorageClass for the cluster.
+    # Only one StorageClass should have this annotation set to "true".
+    storageclass.kubernetes.io/is-default-class: "true"
+
+# Rook Ceph RBD CSI provisioner.
+provisioner: rook-ceph.rbd.csi.ceph.com
+
+parameters:
+  # --- Ceph cluster identification ---
+  # clusterID is the namespace where the Rook-Ceph cluster is deployed.
+  clusterID: rook-ceph
+
+  # --- Pool ---
+  # The CephBlockPool to use for provisioning RBD images.
+  pool: replicapool
+
+  # --- CSI RBD image format and features ---
+  # imageFormat "2" is required for features like layering and snapshots.
+  imageFormat: "2"
+  # imageFeatures controls which RBD features are enabled on new images.
+  # "layering" is required; additional features like "fast-diff" and
+  # "object-map" improve performance for snapshots and clones.
+  imageFeatures: layering
+
+  # --- Ceph CSI provisioner and node plugin secrets ---
+  # These secrets contain the credentials for the CSI driver to communicate
+  # with the Ceph cluster. Rook creates them automatically.
+  csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+  csi.storage.k8s.io/controller-expand-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/controller-expand-secret-namespace: rook-ceph
+  csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
+  csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+
+  # --- Filesystem type ---
+  # ext4 is the default. Use xfs for workloads that benefit from its
+  # allocation strategies (e.g., large sequential writes).
+  csi.storage.k8s.io/fstype: ext4
+
+# --- Reclaim Policy ---
+# Delete: PV and backing RBD image are deleted when the PVC is removed.
+# Use "Retain" if data must survive PVC deletion (manual cleanup required).
+reclaimPolicy: Delete
+
+# --- Volume Expansion ---
+# Allows PVCs to be resized by editing the PVC spec.resources.requests.storage.
+# The Ceph CSI driver supports online expansion (no pod restart needed).
+allowVolumeExpansion: true
+
+# --- Mount Options ---
+# Add filesystem mount options if needed (e.g., discard for TRIM support).
+mountOptions: []
+
+# --- Volume Binding Mode ---
+# WaitForFirstConsumer delays PV creation until a pod using the PVC is
+# scheduled, ensuring the volume is created in the correct topology zone.
+volumeBindingMode: Immediate

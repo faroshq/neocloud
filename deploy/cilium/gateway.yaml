@@ -1,0 +1,37 @@
+# Platform Gateway for tenant workload HTTP(S) ingress.
+# Cilium implements the Gateway API natively — no separate ingress controller needed.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: platform
+  namespace: platform-system
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  gatewayClassName: cilium
+  listeners:
+    # HTTPS listener — terminates TLS for all tenant workloads
+    - name: https
+      protocol: HTTPS
+      port: 443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: platform-wildcard-tls
+            namespace: platform-system
+      allowedRoutes:
+        namespaces:
+          from: All
+    # HTTP listener — redirects to HTTPS
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All
+---
+# Namespace for platform-level resources
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-system

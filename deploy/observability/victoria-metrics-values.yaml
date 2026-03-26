@@ -1,0 +1,73 @@
+# =============================================================================
+# VictoriaMetrics Single-Node Helm Values — Management Cluster
+# =============================================================================
+#
+# Deployment target: management cluster
+#
+# VictoriaMetrics acts as the centralized, long-term metrics store for the
+# entire platform. Every workload cluster Prometheus remote-writes here.
+# Grafana on the management cluster queries VictoriaMetrics as its primary
+# Prometheus-compatible datasource.
+#
+# Install:
+#   helm upgrade --install victoria-metrics vm/victoria-metrics-single \
+#     -n monitoring --create-namespace -f victoria-metrics-values.yaml
+# =============================================================================
+
+server:
+  # ---------------------------------------------------------------------------
+  # Retention — keep 90 days of metrics for capacity planning and auditing.
+  # ---------------------------------------------------------------------------
+  retentionPeriod: "90d"
+
+  # ---------------------------------------------------------------------------
+  # Listen address — bind to all interfaces on port 8428.
+  # ---------------------------------------------------------------------------
+  extraArgs:
+    httpListenAddr: ":8428"
+    # Deduplication window to handle duplicate samples from HA Prometheus pairs.
+    dedup.minScrapeInterval: "30s"
+
+  # ---------------------------------------------------------------------------
+  # Persistent storage — 100Gi to accommodate 90 days of multi-cluster data.
+  # Adjust the storageClass to match your cluster (e.g. rook-ceph-block).
+  # ---------------------------------------------------------------------------
+  persistentVolume:
+    enabled: true
+    size: 100Gi
+    # storageClass: ""  # Uncomment and set if a specific class is needed.
+    accessModes:
+      - ReadWriteOnce
+
+  # ---------------------------------------------------------------------------
+  # Resource requests — sized for a mid-range deployment (~50 nodes total).
+  # ---------------------------------------------------------------------------
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+  # ---------------------------------------------------------------------------
+  # Service configuration
+  # ---------------------------------------------------------------------------
+  service:
+    type: ClusterIP
+    servicePort: 8428
+
+  # ---------------------------------------------------------------------------
+  # Ingress — uncomment to expose externally (e.g. for cross-cluster writes).
+  # ---------------------------------------------------------------------------
+  # ingress:
+  #   enabled: true
+  #   annotations:
+  #     cert-manager.io/cluster-issuer: letsencrypt-prod
+  #   hosts:
+  #     - name: victoriametrics.mgmt.example.com
+  #       path: /
+  #   tls:
+  #     - secretName: victoriametrics-tls
+  #       hosts:
+  #         - victoriametrics.mgmt.example.com

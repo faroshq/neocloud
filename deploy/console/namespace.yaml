@@ -1,0 +1,22 @@
+# =============================================================================
+# Namespace: platform
+# =============================================================================
+# This namespace hosts all platform-level services for the sovereign cloud
+# reference architecture, including the web console, authentication proxies,
+# and supporting infrastructure components.
+#
+# All platform services share this namespace to simplify RBAC, network
+# policies, and resource quota management.
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform
+  labels:
+    # Identify this namespace as part of the platform tier
+    app.kubernetes.io/part-of: sovereign-cloud-platform
+    app.kubernetes.io/managed-by: kubectl
+    # Pod Security Standards - enforce restricted profile for production security
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

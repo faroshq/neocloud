@@ -1,0 +1,50 @@
+# BareMetalHost template for management cluster nodes.
+# Duplicate this file for each physical server that will run management
+# control-plane components. Replace all <PLACEHOLDER> values before applying.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  # Must match spec.bmc.credentialsName in the BareMetalHost below.
+  name: mgmt-node-<INDEX>-bmc-credentials
+  namespace: metal3
+  labels:
+    app.kubernetes.io/part-of: metal3
+    app.kubernetes.io/managed-by: sovereign-cloud-ref
+    role: management
+type: Opaque
+stringData:
+  # IPMI / Redfish credentials for the baseboard management controller.
+  username: <BMC_USERNAME>
+  password: <BMC_PASSWORD>
+
+---
+apiVersion: metal3.io/v1alpha1
+kind: BareMetalHost
+metadata:
+  name: mgmt-node-<INDEX>
+  namespace: metal3
+  labels:
+    app.kubernetes.io/part-of: metal3
+    app.kubernetes.io/managed-by: sovereign-cloud-ref
+    # Used by hostSelector in the management cluster Machine templates.
+    role: management
+spec:
+  # Replace with the actual MAC address of the provisioning NIC.
+  bootMACAddress: "AA:BB:CC:DD:EE:<INDEX_HEX>"
+
+  # BMC connection details. Replace <INDEX> with the host ordinal
+  # (e.g. 1, 2, 3) so the address maps to the correct IPMI endpoint.
+  bmc:
+    address: "ipmi://172.16.10.<INDEX>:623"
+    credentialsName: mgmt-node-<INDEX>-bmc-credentials
+
+  # Ensure Ironic writes the OS to the correct disk.
+  rootDeviceHints:
+    deviceName: /dev/sda
+
+  # Allow the host to be provisioned automatically once matched.
+  online: true
+
+  # Disable external inspection if Ironic fast-track is enabled.
+  automatedCleaningMode: metadata

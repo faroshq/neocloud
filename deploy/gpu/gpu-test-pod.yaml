@@ -1,0 +1,51 @@
+# GPU Test Pod - Verify NVIDIA GPU detection
+#
+# This pod runs nvidia-smi to confirm that:
+#   - The NVIDIA driver is loaded and functional
+#   - The GPU device plugin is advertising nvidia.com/gpu resources
+#   - The container runtime correctly injects GPU device files
+#   - The GPU is accessible from within a container
+#
+# Usage:
+#   kubectl apply -f gpu-test-pod.yaml
+#   kubectl logs gpu-test-pod
+#
+# Expected output: nvidia-smi table showing GPU model, driver version,
+# CUDA version, temperature, memory usage, etc.
+#
+# The pod will complete (Succeeded) if the GPU is detected, or fail
+# (Error) if nvidia-smi cannot find a GPU.
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gpu-test-pod
+  namespace: default
+  labels:
+    app: gpu-test
+    purpose: smoke-test
+spec:
+  # Do not restart on completion -- this is a one-shot diagnostic.
+  restartPolicy: Never
+
+  containers:
+    - name: gpu-test
+      # CUDA 12.0 base image with nvidia-smi pre-installed.
+      # This image does not include development libraries (use -devel for that).
+      image: nvidia/cuda:12.0.0-base-ubuntu22.04
+
+      # Run nvidia-smi to print GPU information.
+      command: ["nvidia-smi"]
+
+      resources:
+        limits:
+          # Request exactly 1 GPU. The device plugin will allocate one
+          # available GPU from the node.
+          nvidia.com/gpu: "1"
+        # Note: nvidia.com/gpu requests are implicit when a limit is set.
+        # CPU and memory requests are intentionally omitted for this
+        # lightweight test pod.
+
+  # Ensure the pod lands on a GPU node.
+  # nodeSelector:
+  #   gpu: "true"

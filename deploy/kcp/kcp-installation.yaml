@@ -1,0 +1,158 @@
+# =============================================================================
+# KCP Installation via kcp-operator
+# =============================================================================
+#
+# This manifest defines the core KCP control plane components:
+#   1. RootShard    - The primary shard that stores workspace metadata and
+#                     serves as the entry point for the KCP API.
+#   2. FrontProxy   - A reverse proxy that routes requests to the correct
+#                     shard. Runs multiple replicas for high availability.
+#   3. Kubeconfig   - An admin kubeconfig resource that targets the front-proxy
+#                     endpoint, used for initial cluster bootstrapping.
+#
+# Prerequisites:
+#   - kcp-operator installed in the management cluster
+#   - TLS certificates provisioned (cert-manager or manual)
+#   - Zitadel OIDC provider deployed and configured
+#
+# Apply with:
+#   kubectl apply -f kcp-installation.yaml
+# =============================================================================
+
+---
+# -----------------------------------------------------------------------------
+# RootShard
+# -----------------------------------------------------------------------------
+# The RootShard is the foundational shard in a KCP deployment. It holds the
+# root workspace and all top-level workspace metadata. In a multi-shard setup,
+# additional shards can be added later; the root shard always exists.
+#
+# Key configuration:
+#   - hostname/port: The external endpoint where this shard is reachable.
+#   - etcd.embedded: Uses an embedded etcd instance. For production, consider
+#     an external etcd cluster for better durability and backup options.
+#   - oidc: Configures OpenID Connect authentication against Zitadel. This
+#     enables SSO for all KCP users via the platform's identity provider.
+# -----------------------------------------------------------------------------
+apiVersion: operator.kcp.io/v1alpha1
+kind: RootShard
+metadata:
+  name: root
+  # The root shard is a cluster-scoped resource managed by kcp-operator.
+spec:
+  # ---------------------------------------------------------------------------
+  # External endpoint configuration
+  # ---------------------------------------------------------------------------
+  # hostname: The DNS name that clients and other shards use to reach this
+  # shard. Must resolve to the front-proxy or a load balancer in front of it.
+  hostname: kcp.demo.example.com
+
+  # port: The TLS port for the KCP API server on this shard.
+  # 443 is standard for HTTPS; change if running behind a non-standard LB.
+  port: 443
+
+  # ---------------------------------------------------------------------------
+  # etcd configuration
+  # ---------------------------------------------------------------------------
+  # embedded: When true, the kcp-operator runs an embedded etcd instance
+  # alongside the shard process. This simplifies deployment but is less
+  # resilient than an external etcd cluster.
+  #
+  # For production workloads, consider:
+  #   embedded: false
+  #   endpoints: ["https://etcd-0:2379", "https://etcd-1:2379", "https://etcd-2:2379"]
+  etcd:
+    embedded: true
+
+  # ---------------------------------------------------------------------------
+  # OIDC authentication configuration
+  # ---------------------------------------------------------------------------
+  # KCP delegates authentication to an external OIDC provider (Zitadel).
+  # Users authenticate via Zitadel and receive JWT tokens that KCP validates.
+  #
+  # issuerURL: The Zitadel issuer URL. Must be reachable from the KCP shard
+  #            and must match the "iss" claim in issued tokens.
+  # clientID:  The OIDC client ID registered in Zitadel for KCP.
+  #            Created via deploy/zitadel/setup-oidc.sh.
+  # usernameClaim: The JWT claim used as the KCP username. "email" is
+  #               recommended for human-readable audit logs.
+  # usernamePrefix: Prefix added to OIDC usernames to avoid collisions with
+  #                other authentication sources (e.g., service accounts).
+  # groupsClaim: The JWT claim containing group memberships for RBAC.
+  # groupsPrefix: Prefix added to OIDC group names.
+  # requiredClaims: Optional map of claims that must be present in the token.
+  #                 Useful for restricting access to specific tenants/orgs.
+  oidc:
+    issuerURL: "https://auth.demo.example.com"
+    clientID: "kcp"
+    usernameClaim: "email"
+    usernamePrefix: "oidc:"
+    groupsClaim: "groups"
+    groupsPrefix: "oidc:"
+
+---
+# -----------------------------------------------------------------------------
+# FrontProxy
+# -----------------------------------------------------------------------------
+# The FrontProxy is the externally-facing component of a KCP deployment.
+# All client traffic enters through the front-proxy, which:
+#   - Terminates TLS (or passes through to shards)
+#   - Routes requests to the correct shard based on the workspace/cluster path
+#   - Provides a stable endpoint even as shards are added or moved
+#
+# In a single-shard deployment, the front-proxy still provides value as the
+# stable external endpoint and the place where TLS and auth are handled.
+#
+# replicas: Run at least 2 for high availability. The front-proxy is stateless
+#           and can be scaled horizontally.
+# rootShard: References the RootShard resource above. The front-proxy uses
+#            this to discover the shard topology.
+# -----------------------------------------------------------------------------
+apiVersion: operator.kcp.io/v1alpha1
+kind: FrontProxy
+metadata:
+  name: front-proxy
+spec:
+  # replicas: Number of front-proxy pods. Each is stateless and independently
+  # routes traffic. Use pod anti-affinity (managed by the operator) to spread
+  # across nodes for HA.
+  replicas: 2
+
+  # rootShard: A reference to the RootShard that this front-proxy should
+  # connect to. The operator uses this to configure the proxy's routing table.
+  rootShard:
+    name: root
+
+---
+# -----------------------------------------------------------------------------
+# Kubeconfig
+# -----------------------------------------------------------------------------
+# The Kubeconfig resource instructs kcp-operator to generate a kubeconfig
+# file stored in a Kubernetes Secret. This kubeconfig grants admin access
+# to the KCP API through the front-proxy endpoint.
+#
+# Usage:
+#   kubectl get secret kcp-admin-kubeconfig -o jsonpath='{.data.kubeconfig}' | base64 -d > kcp-admin.kubeconfig
+#   export KUBECONFIG=kcp-admin.kubeconfig
+#   kubectl ws tree
+#
+# Security considerations:
+#   - This kubeconfig has full admin privileges. Treat it like root credentials.
+#   - Rotate regularly and restrict access to the Secret via RBAC.
+#   - For day-to-day operations, use OIDC-based authentication instead.
+# -----------------------------------------------------------------------------
+apiVersion: operator.kcp.io/v1alpha1
+kind: Kubeconfig
+metadata:
+  name: kcp-admin-kubeconfig
+spec:
+  # target: Where the kubeconfig should point.
+  # "front-proxy" means API requests go through the FrontProxy, which is the
+  # recommended approach for all external access.
+  target: front-proxy
+
+  # secretRef: The Kubernetes Secret where the generated kubeconfig is stored.
+  # The operator creates/updates this Secret automatically.
+  secretRef:
+    name: kcp-admin-kubeconfig
+    # namespace: defaults to the same namespace as the Kubeconfig resource

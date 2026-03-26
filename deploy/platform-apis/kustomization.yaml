@@ -1,0 +1,53 @@
+# ============================================================================
+# Kustomization: platform-apis
+# ============================================================================
+# Aggregates all platform API definitions (APIResourceSchemas and APIExports)
+# for deployment to the KCP control plane.
+#
+# Resources are ordered with schemas first (since APIExports reference them),
+# grouped by API domain: compute, AI, storage, and network.
+#
+# Usage:
+#   kubectl apply -k deploy/platform-apis/
+# ============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # --------------------------------------------------------------------------
+  # Compute API group (compute.cloud.example)
+  # --------------------------------------------------------------------------
+  # Schema for Compute resources (container-based instances)
+  - compute-schema.yaml
+  # Schema for VirtualMachine resources (full VMs)
+  - vm-schema.yaml
+  # APIExport making compute resources available to tenants
+  - compute-apiexport.yaml
+
+  # --------------------------------------------------------------------------
+  # AI API group (ai.cloud.example)
+  # --------------------------------------------------------------------------
+  # Schema for Notebook resources (Jupyter environments)
+  - notebook-schema.yaml
+  # Schema for GPUJob resources (batch GPU jobs)
+  - gpujob-schema.yaml
+  # APIExport making AI resources available to tenants
+  - ai-apiexport.yaml
+
+  # --------------------------------------------------------------------------
+  # Storage API group (storage.cloud.example)
+  # --------------------------------------------------------------------------
+  # Schema for Volume resources (block storage)
+  - volume-schema.yaml
+  # Schema for ObjectBucket resources (S3-compatible storage)
+  - objectbucket-schema.yaml
+  # APIExport making storage resources available to tenants
+  - storage-apiexport.yaml
+
+  # --------------------------------------------------------------------------
+  # Network API group (network.cloud.example)
+  # --------------------------------------------------------------------------
+  # Schema for PublicIP resources (public IPv4 addresses)
+  - publicip-schema.yaml
+  # APIExport making network resources available to tenants
+  - network-apiexport.yaml

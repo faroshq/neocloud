@@ -1,0 +1,162 @@
+# =============================================================================
+# Zitadel Helm Chart Values
+# =============================================================================
+#
+# Configuration for the Zitadel Helm chart (https://zitadel.com/docs/self-hosting/deploy/kubernetes).
+#
+# Install with:
+#   helm repo add zitadel https://charts.zitadel.com
+#   helm repo update
+#   helm install zitadel zitadel/zitadel \
+#     --namespace zitadel \
+#     --values deploy/zitadel/helm-values.yaml
+#
+# Prerequisites:
+#   - Namespace "zitadel" exists (deploy/zitadel/namespace.yaml)
+#   - PostgreSQL is running (deploy/zitadel/postgres.yaml)
+#   - PostgreSQL credentials Secret exists (deploy/zitadel/postgres-secret.yaml)
+#   - A Gateway/Ingress routes auth.demo.example.com to Zitadel
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Replica count
+# -----------------------------------------------------------------------------
+# Run at least 2 replicas for high availability. Zitadel is stateless (all
+# state lives in PostgreSQL), so horizontal scaling is straightforward.
+replicaCount: 2
+
+# -----------------------------------------------------------------------------
+# Zitadel configuration
+# -----------------------------------------------------------------------------
+zitadel:
+  # masterkeySecretName: Zitadel encrypts sensitive data at rest using a
+  # master key. This references a Kubernetes Secret containing the key.
+  #
+  # Create the Secret:
+  #   kubectl create secret generic zitadel-masterkey \
+  #     --namespace=zitadel \
+  #     --from-literal=masterkey=$(openssl rand -base64 32)
+  #
+  # IMPORTANT: Back up this key securely. Losing it means losing access to
+  # all encrypted data in the Zitadel database.
+  masterkeySecretName: zitadel-masterkey
+
+  # ---------------------------------------------------------------------------
+  # configmapConfig: Zitadel runtime configuration
+  # ---------------------------------------------------------------------------
+  # These values are rendered into a ConfigMap and mounted into the Zitadel
+  # pods. See https://zitadel.com/docs/self-hosting/manage/configure
+  configmapConfig:
+
+    # -------------------------------------------------------------------------
+    # External domain and TLS
+    # -------------------------------------------------------------------------
+    # ExternalDomain: The public domain where Zitadel is accessible.
+    # This appears in OIDC discovery documents, redirect URIs, and emails.
+    ExternalDomain: auth.demo.example.com
+
+    # ExternalPort: The public-facing port. 443 for standard HTTPS.
+    ExternalPort: 443
+
+    # ExternalSecure: Must be true when Zitadel is served over HTTPS.
+    # Controls cookie Secure flags and redirect URI schemes.
+    ExternalSecure: true
+
+    # TLS: Disabled because TLS is terminated at the Gateway/Ingress layer.
+    # Zitadel receives plain HTTP traffic from the reverse proxy.
+    # If running without a reverse proxy, enable TLS here.
+    TLS:
+      Enabled: false
+
+    # -------------------------------------------------------------------------
+    # Database configuration
+    # -------------------------------------------------------------------------
+    # Zitadel connects to the PostgreSQL StatefulSet deployed in the same
+    # namespace. The connection string components reference the headless
+    # Service DNS name.
+    Database:
+      # Postgres dialect (as opposed to CockroachDB)
+      Postgres:
+        # Host: The headless Service name for the PostgreSQL StatefulSet.
+        # Resolves to postgres-0.postgres.zitadel.svc.cluster.local
+        Host: postgres.zitadel.svc.cluster.local
+
+        # Port: Standard PostgreSQL port.
+        Port: 5432
+
+        # Database: Must match POSTGRES_DB in the credentials Secret.
+        Database: zitadel
+
+        # User: Zitadel's database user configuration.
+        User:
+          # Username: Must match POSTGRES_USER in the credentials Secret.
+          Username: zitadel
+
+          # SSL: Disabled for in-cluster communication.
+          # Enable if PostgreSQL is configured with TLS (recommended for
+          # cross-node traffic in production).
+          SSL:
+            Mode: disable
+
+        # Admin: Used for schema migrations and database initialization.
+        # Typically the same user for simple deployments.
+        Admin:
+          Username: zitadel
+          SSL:
+            Mode: disable
+
+      # MaxOpenConns: Maximum number of open database connections per Zitadel
+      # instance. Adjust based on expected load and PostgreSQL max_connections.
+      MaxOpenConns: 20
+
+      # MaxIdleConns: Connections kept idle in the pool. Reduces connection
+      # setup latency for bursty workloads.
+      MaxIdleConns: 10
+
+    # -------------------------------------------------------------------------
+    # Default instance configuration
+    # -------------------------------------------------------------------------
+    # DefaultInstance: Settings applied when Zitadel initializes its first
+    # (default) instance. This configures the admin organization.
+    DefaultInstance:
+      # OrgName: The name of the default organization created during setup.
+      # This is the top-level organization that manages the Zitadel instance.
+      OrgName: "Platform Admin"
+
+      # InstanceName: Human-readable name for the Zitadel instance.
+      InstanceName: "Sovereign Cloud Platform"
+
+  # ---------------------------------------------------------------------------
+  # dbSslCaCrtSecret: Reference to a Secret containing the PostgreSQL CA
+  # certificate. Not needed when SSL Mode is "disable".
+  # ---------------------------------------------------------------------------
+  # dbSslCaCrtSecret: ""
+
+  # ---------------------------------------------------------------------------
+  # secretConfig: Sensitive configuration stored in a Secret.
+  # The password here must match the one in postgres-credentials Secret.
+  # ---------------------------------------------------------------------------
+  secretConfig:
+    Database:
+      Postgres:
+        User:
+          Password: "CHANGE_ME_MUST_MATCH_POSTGRES_SECRET"
+        Admin:
+          Password: "CHANGE_ME_MUST_MATCH_POSTGRES_SECRET"
+
+# -----------------------------------------------------------------------------
+# Pod disruption budget
+# -----------------------------------------------------------------------------
+# Ensure at least one Zitadel pod is always available during voluntary
+# disruptions (node drain, rolling updates).
+pdb:
+  enabled: true
+  minAvailable: 1
+
+# -----------------------------------------------------------------------------
+# Service configuration
+# -----------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 8080

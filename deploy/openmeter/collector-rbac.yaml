@@ -1,0 +1,96 @@
+# =============================================================================
+# OpenMeter Collector RBAC
+# =============================================================================
+#
+# Deployment target: each workload cluster (same cluster as the DaemonSet)
+#
+# The collector needs read access to pods, nodes, and namespaces to discover
+# workloads and attribute usage to tenants. It also needs nodes/proxy access
+# to scrape kubelet's /metrics/resource endpoint for CPU and memory stats.
+#
+# Apply before the DaemonSet:
+#   kubectl apply -f collector-rbac.yaml
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# ServiceAccount — identity for the collector pods
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openmeter-collector
+  namespace: openmeter
+  labels:
+    app.kubernetes.io/name: openmeter-collector
+    app.kubernetes.io/component: collector
+    app.kubernetes.io/part-of: openmeter
+
+---
+# ---------------------------------------------------------------------------
+# ClusterRole — read-only access to pods, nodes, namespaces, and kubelet proxy
+# ---------------------------------------------------------------------------
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: openmeter-collector
+  labels:
+    app.kubernetes.io/name: openmeter-collector
+    app.kubernetes.io/component: collector
+    app.kubernetes.io/part-of: openmeter
+rules:
+  # -------------------------------------------------------------------------
+  # Core resources — needed to discover workloads and map them to tenants.
+  # -------------------------------------------------------------------------
+  - apiGroups: [""]
+    resources:
+      - pods
+      - nodes
+      - namespaces
+    verbs:
+      - get
+      - list
+      - watch
+
+  # -------------------------------------------------------------------------
+  # Kubelet metrics proxy — allows the collector to scrape per-node metrics
+  # from the kubelet's /metrics/resource and /stats/summary endpoints.
+  # The nodes/proxy sub-resource grants HTTP proxy access to the kubelet API.
+  # -------------------------------------------------------------------------
+  - apiGroups: [""]
+    resources:
+      - nodes/proxy
+    verbs:
+      - get
+
+  # -------------------------------------------------------------------------
+  # Metrics resources — needed if the collector reads from the metrics API
+  # (metrics.k8s.io) as a fallback when kubelet proxy is unavailable.
+  # -------------------------------------------------------------------------
+  - apiGroups: ["metrics.k8s.io"]
+    resources:
+      - pods
+      - nodes
+    verbs:
+      - get
+      - list
+
+---
+# ---------------------------------------------------------------------------
+# ClusterRoleBinding — bind the ClusterRole to the collector ServiceAccount
+# ---------------------------------------------------------------------------
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: openmeter-collector
+  labels:
+    app.kubernetes.io/name: openmeter-collector
+    app.kubernetes.io/component: collector
+    app.kubernetes.io/part-of: openmeter
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: openmeter-collector
+subjects:
+  - kind: ServiceAccount
+    name: openmeter-collector
+    namespace: openmeter

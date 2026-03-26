@@ -1,0 +1,110 @@
+# Quota Controller
+#
+# Serves the admission webhook and checks OpenMeter entitlements.
+# Also periodically reconciles tenant quotas:
+#   - Transitions workspaces to read-only when credits exhausted
+#   - Sends alerts when tenants approach quota limits
+#   - Updates KCP ResourceQuota based on plan changes
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quota-controller
+  namespace: platform-operators
+  labels:
+    app: quota-controller
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: quota-controller
+  template:
+    metadata:
+      labels:
+        app: quota-controller
+    spec:
+      serviceAccountName: quota-controller
+      containers:
+        - name: controller
+          image: ghcr.io/faroshq/quota-controller:latest
+          args:
+            - --kcp-kubeconfig=/etc/kcp/kubeconfig
+            - --openmeter-url=http://openmeter.openmeter.svc:8888
+            - --webhook-port=8443
+            - --tls-cert-file=/etc/webhook-certs/tls.crt
+            - --tls-key-file=/etc/webhook-certs/tls.key
+          env:
+            - name: OPENMETER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openmeter-credentials
+                  key: token
+          ports:
+            - containerPort: 8443
+              name: webhook
+            - containerPort: 8080
+              name: metrics
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: kcp-kubeconfig
+              mountPath: /etc/kcp
+              readOnly: true
+            - name: webhook-certs
+              mountPath: /etc/webhook-certs
+              readOnly: true
+      volumes:
+        - name: kcp-kubeconfig
+          secret:
+            secretName: kcp-operator-kubeconfig
+        - name: webhook-certs
+          secret:
+            secretName: quota-controller-tls
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: quota-controller
+  namespace: platform-operators
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: quota-controller
+  namespace: platform-operators
+spec:
+  selector:
+    app: quota-controller
+  ports:
+    - port: 8443
+      targetPort: webhook
+      name: webhook
+    - port: 8080
+      targetPort: metrics
+      name: metrics
+---
+# Certificate for the webhook TLS
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: quota-controller-tls
+  namespace: platform-operators
+spec:
+  secretName: quota-controller-tls
+  dnsNames:
+    - quota-controller.platform-operators.svc
+    - quota-controller.platform-operators.svc.cluster.local
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer

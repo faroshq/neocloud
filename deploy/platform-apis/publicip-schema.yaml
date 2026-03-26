@@ -1,0 +1,98 @@
+# ============================================================================
+# APIResourceSchema: PublicIP
+# ============================================================================
+# Defines the PublicIP resource type in the network.cloud.example API group.
+# A PublicIP resource represents a public IPv4 address that can be assigned
+# to Compute or VirtualMachine instances to make them reachable from the
+# internet.
+#
+# PublicIPs are reconciled by the network-operator, which manages IP address
+# allocation and routing on the underlying infrastructure.
+# ============================================================================
+apiVersion: apis.kcp.io/v1alpha1
+kind: APIResourceSchema
+metadata:
+  # Name follows the KCP convention: <plural>.<group>
+  name: publicips.network.cloud.example
+spec:
+  # The API group this resource belongs to
+  group: network.cloud.example
+  names:
+    # The kind used in resource manifests
+    kind: PublicIP
+    # The plural form used in API URLs
+    plural: publicips
+    # The singular form used in CLI output and help text
+    singular: publicip
+    # Short names for kubectl convenience (e.g., kubectl get pip)
+    shortNames:
+      - pip
+  # Resources are namespaced to support multi-tenancy isolation
+  scope: Namespaced
+  versions:
+    - name: v1
+      # This is the version served by the API server
+      served: true
+      # This is the version used for storage
+      storage: true
+      # Subresources configuration
+      subresources:
+        # Enable the /status subresource so that status updates can be
+        # performed separately from spec updates (typically by the operator)
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: >-
+            PublicIP represents a public IPv4 address that can be assigned
+            to a Compute or VirtualMachine instance. Tenants create PublicIP
+            resources to make their workloads reachable from the internet.
+          properties:
+            # ----------------------------------------------------------------
+            # spec: Desired state of the PublicIP
+            # ----------------------------------------------------------------
+            spec:
+              type: object
+              description: Desired state of the PublicIP
+              properties:
+                # Reference to the target resource to assign the IP to
+                targetRef:
+                  type: object
+                  description: >-
+                    Reference to the resource that should receive this
+                    public IP address. The target must exist in the same
+                    namespace.
+                  properties:
+                    kind:
+                      type: string
+                      description: >-
+                        Kind of the target resource (e.g., "Compute",
+                        "VirtualMachine").
+                    name:
+                      type: string
+                      description: >-
+                        Name of the target resource in the same namespace.
+            # ----------------------------------------------------------------
+            # status: Observed state of the PublicIP (set by operator)
+            # ----------------------------------------------------------------
+            status:
+              type: object
+              description: >-
+                Observed state of the PublicIP, populated by the
+                network-operator.
+              properties:
+                phase:
+                  type: string
+                  description: >-
+                    Current lifecycle phase of the public IP
+                    (e.g., Pending, Allocating, Assigned, Released, Failed).
+                address:
+                  type: string
+                  description: >-
+                    The allocated public IPv4 address
+                    (e.g., "203.0.113.42").
+                message:
+                  type: string
+                  description: >-
+                    Human-readable message providing details about the
+                    current phase or any errors encountered.

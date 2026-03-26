@@ -1,0 +1,78 @@
+# =============================================================================
+# DNS Records Documentation
+# =============================================================================
+# This file documents all DNS records required for the sovereign cloud
+# platform. Configure these records in your DNS provider before deploying
+# the platform services and requesting TLS certificates.
+#
+# There are two categories of DNS records:
+#
+# 1. Management cluster records:
+#    All platform services (kcp, auth, console, grafana, tunnel) resolve to
+#    the management cluster's public IP address. This is typically the
+#    external IP of the Gateway / LoadBalancer service.
+#
+# 2. Workload cluster records:
+#    Tenant-facing services (*.tenant.demo.example.com) resolve to the
+#    workload cluster's public IP address. This allows tenant workloads
+#    to be served from workload clusters while the management plane runs
+#    separately.
+#
+# IMPORTANT:
+#   - Replace "management-public-ip" and "workload-public-ip" with your
+#     actual IP addresses or CNAME targets.
+#   - If using a cloud provider with load balancers, these may be DNS names
+#     (CNAMEs) rather than IP addresses (A records).
+#   - Ensure all records are propagated before requesting TLS certificates,
+#     as HTTP-01 validation requires working DNS.
+# =============================================================================
+
+# This ConfigMap serves as machine-readable documentation of the required
+# DNS records. It is NOT consumed by any service -- it exists purely as a
+# reference for operators setting up DNS.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dns-records-reference
+  namespace: platform
+  labels:
+    app.kubernetes.io/component: documentation
+    app.kubernetes.io/part-of: sovereign-cloud-platform
+  annotations:
+    description: "Reference document for required DNS records. Not consumed by any service."
+data:
+  # =========================================================================
+  # Management Cluster DNS Records
+  # =========================================================================
+  # All these records should point to the management cluster's public IP
+  # (the external IP of the platform Gateway / LoadBalancer).
+  #
+  # Record Type: A (for IP) or CNAME (for DNS name)
+  # =========================================================================
+
+  # kcp API server - the core multi-tenant Kubernetes API
+  kcp.demo.example.com: "management-public-ip"
+
+  # Zitadel authentication service - OIDC provider
+  auth.demo.example.com: "management-public-ip"
+
+  # Web console - browser-based management UI
+  console.demo.example.com: "management-public-ip"
+
+  # Grafana - monitoring and observability dashboards
+  grafana.demo.example.com: "management-public-ip"
+
+  # Tunnel service - CLI SSH/gRPC tunnel endpoint
+  tunnel.demo.example.com: "management-public-ip"
+
+  # =========================================================================
+  # Workload Cluster DNS Records
+  # =========================================================================
+  # Tenant wildcard record points to the workload cluster's public IP.
+  # This allows each tenant to get a unique subdomain automatically.
+  #
+  # Record Type: A (wildcard)
+  # =========================================================================
+
+  # Wildcard for all tenant subdomains
+  "*.tenant.demo.example.com": "workload-public-ip"

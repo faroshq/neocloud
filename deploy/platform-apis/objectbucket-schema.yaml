@@ -1,0 +1,101 @@
+# ============================================================================
+# APIResourceSchema: ObjectBucket
+# ============================================================================
+# Defines the ObjectBucket resource type in the storage.cloud.example API
+# group. An ObjectBucket resource represents an S3-compatible object storage
+# bucket that tenants can use for unstructured data storage.
+#
+# ObjectBuckets are reconciled by the storage-operator, which provisions
+# buckets on the underlying object storage system (e.g., MinIO, Ceph RGW).
+# ============================================================================
+apiVersion: apis.kcp.io/v1alpha1
+kind: APIResourceSchema
+metadata:
+  # Name follows the KCP convention: <plural>.<group>
+  name: objectbuckets.storage.cloud.example
+spec:
+  # The API group this resource belongs to
+  group: storage.cloud.example
+  names:
+    # The kind used in resource manifests
+    kind: ObjectBucket
+    # The plural form used in API URLs
+    plural: objectbuckets
+    # The singular form used in CLI output and help text
+    singular: objectbucket
+    # Short names for kubectl convenience (e.g., kubectl get ob)
+    shortNames:
+      - ob
+  # Resources are namespaced to support multi-tenancy isolation
+  scope: Namespaced
+  versions:
+    - name: v1
+      # This is the version served by the API server
+      served: true
+      # This is the version used for storage
+      storage: true
+      # Subresources configuration
+      subresources:
+        # Enable the /status subresource so that status updates can be
+        # performed separately from spec updates (typically by the operator)
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: >-
+            ObjectBucket represents an S3-compatible object storage bucket.
+            Tenants create ObjectBucket resources to provision buckets for
+            storing unstructured data such as files, images, backups, and
+            ML datasets.
+          properties:
+            # ----------------------------------------------------------------
+            # spec: Desired state of the ObjectBucket
+            # ----------------------------------------------------------------
+            spec:
+              type: object
+              description: Desired state of the ObjectBucket
+              properties:
+                # Storage quota for the bucket
+                quota:
+                  type: string
+                  description: >-
+                    Maximum storage quota for the bucket in Kubernetes
+                    resource format (e.g., "100Gi", "1Ti"). The bucket
+                    will reject writes once this limit is reached.
+                  default: "100Gi"
+            # ----------------------------------------------------------------
+            # status: Observed state of the ObjectBucket (set by operator)
+            # ----------------------------------------------------------------
+            status:
+              type: object
+              description: >-
+                Observed state of the ObjectBucket, populated by the
+                storage-operator.
+              properties:
+                phase:
+                  type: string
+                  description: >-
+                    Current lifecycle phase of the bucket
+                    (e.g., Pending, Provisioning, Ready, Failed).
+                endpoint:
+                  type: string
+                  description: >-
+                    S3-compatible endpoint URL for accessing the bucket
+                    (e.g., https://s3.cloud.example/my-bucket).
+                accessKeyID:
+                  type: string
+                  description: >-
+                    Access key ID for authenticating to the bucket. The
+                    corresponding secret key is stored in a Kubernetes
+                    Secret in the tenant's namespace.
+                bucketName:
+                  type: string
+                  description: >-
+                    Actual name of the bucket on the underlying storage
+                    system. May differ from the resource name due to
+                    global uniqueness requirements.
+                message:
+                  type: string
+                  description: >-
+                    Human-readable message providing details about the
+                    current phase or any errors encountered.

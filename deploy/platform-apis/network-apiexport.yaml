@@ -1,0 +1,23 @@
+# ============================================================================
+# APIExport: network
+# ============================================================================
+# Exposes the network API group resources to tenants via KCP's API export
+# mechanism. Tenants can bind to this APIExport to gain access to PublicIP
+# resources in their workspaces.
+#
+# The APIExport references the latest versions of the APIResourceSchemas
+# for all network-related resources. When schemas are updated, tenants
+# automatically receive the new API definitions.
+# ============================================================================
+apiVersion: apis.kcp.io/v1alpha1
+kind: APIExport
+metadata:
+  # Name of the APIExport, used by tenants when creating APIBindings
+  name: network
+spec:
+  # List of APIResourceSchema names that are part of this export.
+  # These schemas define the resource types available to tenants
+  # who bind to this APIExport.
+  latestResourceSchemas:
+    # PublicIP: public IPv4 addresses for workloads
+    - publicips.network.cloud.example

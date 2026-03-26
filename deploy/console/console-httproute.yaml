@@ -1,0 +1,39 @@
+# =============================================================================
+# Console HTTPRoute - Gateway API
+# =============================================================================
+# Exposes the web console externally via the Gateway API. This HTTPRoute
+# attaches to the "platform" Gateway in the "platform" namespace and routes
+# traffic for console.demo.example.com to the web-console Service.
+#
+# Prerequisites:
+#   - A Gateway resource named "platform" in the "platform" namespace
+#   - TLS certificate for console.demo.example.com (see deploy/tls/)
+#   - The web-console Service (see web-console.yaml)
+# =============================================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: console-route
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: web-console
+    app.kubernetes.io/component: routing
+    app.kubernetes.io/part-of: sovereign-cloud-platform
+spec:
+  # Attach to the platform Gateway
+  parentRefs:
+    - name: platform
+      namespace: platform
+      sectionName: https
+  # Match requests for the console hostname
+  hostnames:
+    - console.demo.example.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: web-console
+          port: 80
+          weight: 1

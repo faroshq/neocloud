@@ -1,0 +1,59 @@
+# Kueue ClusterQueue - Platform-wide resource allocation
+#
+# The ClusterQueue defines the total resource budget available across the
+# platform. Kueue uses this to admit or queue workloads (Jobs, Pods) based
+# on available capacity.
+#
+# This queue defines two resource groups:
+#   1. CPU and memory on cpu-nodes (general-purpose workloads)
+#   2. NVIDIA GPUs on gpu-nodes (ML/AI workloads)
+#
+# Workloads are admitted from any namespace (namespaceSelector: {}),
+# and individual namespaces get access via LocalQueues that reference
+# this ClusterQueue.
+#
+# Quota values represent the maximum resources Kueue will admit concurrently.
+# They do not reserve physical resources -- they control admission only.
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: platform-queue
+spec:
+  # Accept workloads from all namespaces.
+  # To restrict to specific namespaces, add label selectors here.
+  namespaceSelector: {}
+
+  # --- Resource Groups ---
+  # Each resource group maps a set of resources to one or more ResourceFlavors.
+  # Kueue tries flavors in order and admits the workload to the first flavor
+  # with sufficient quota.
+  resourceGroups:
+    # CPU and memory resources on general-purpose CPU nodes.
+    - coveredResources: ["cpu", "memory"]
+      flavors:
+        - name: cpu-nodes
+          resources:
+            - name: cpu
+              nominalQuota: "100"
+              # borrowingLimit can be set to allow temporary overcommit:
+              # borrowingLimit: "20"
+            - name: memory
+              nominalQuota: "500Gi"
+
+    # GPU resources on dedicated GPU nodes.
+    - coveredResources: ["nvidia.com/gpu"]
+      flavors:
+        - name: gpu-nodes
+          resources:
+            - name: nvidia.com/gpu
+              nominalQuota: "4"
+              # Adjust as GPU nodes are added to the cluster.
+              # With MIG enabled in the future, additional resource types
+              # (e.g., nvidia.com/mig-1g.5gb) can be added here.
+
+  # --- Preemption ---
+  # Configure preemption policies if workload prioritization is needed.
+  # preemption:
+  #   withinClusterQueue: LowerPriority
+  #   reclaimWithinCohort: Any

@@ -1,0 +1,48 @@
+# =============================================================================
+# Let's Encrypt Production ClusterIssuer
+# =============================================================================
+# cert-manager ClusterIssuer for obtaining production TLS certificates from
+# Let's Encrypt. This issuer is cluster-scoped and can be referenced by
+# Certificate resources in any namespace.
+#
+# IMPORTANT:
+#   - Let's Encrypt production has rate limits. Use the staging issuer
+#     (letsencrypt-staging) for testing to avoid hitting these limits.
+#   - The HTTP-01 solver uses the Cilium ingress class. If you are using a
+#     different ingress controller, update the class accordingly.
+#   - Update the email address to a valid address for your organization.
+#     Let's Encrypt uses this for expiry notifications and account recovery.
+#
+# Prerequisites:
+#   - cert-manager installed in the cluster
+#   - Cilium configured as the ingress controller (or update solver class)
+#   - DNS records pointing to the cluster's public IP
+# =============================================================================
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+  labels:
+    app.kubernetes.io/component: tls
+    app.kubernetes.io/part-of: sovereign-cloud-platform
+spec:
+  acme:
+    # Let's Encrypt production ACME v2 endpoint
+    server: https://acme-v02.api.letsencrypt.org/directory
+
+    # Email address for certificate expiry notifications and account recovery
+    # TODO: Replace with your organization's email address
+    email: admin@demo.example.com
+
+    # Secret to store the ACME account private key
+    privateKeySecretRef:
+      name: letsencrypt-prod
+
+    # HTTP-01 challenge solver configuration
+    # This creates a temporary Ingress to serve the ACME challenge token
+    solvers:
+      - http01:
+          ingress:
+            # Use Cilium as the ingress class for solving HTTP-01 challenges
+            # Change this if using a different ingress controller (e.g., nginx, traefik)
+            ingressClassName: cilium

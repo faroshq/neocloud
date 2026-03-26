@@ -1,0 +1,97 @@
+# Storage Operator
+#
+# Reconciles Volume resources from KCP tenant workspaces
+# into PVCs and ObjectBucket CRs into OBCs (Ceph) on the workload cluster.
+#
+# The operator:
+#   1. Watches KCP virtual workspace for tenant Volume CRs
+#   2. Creates/updates PVCs and ObjectBucket CRs into OBCs (Ceph) in tenant namespace on workload cluster
+#   3. Updates status back in KCP (phase, URL, endpoints)
+#   4. Emits usage events to OpenMeter for billing
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: storage-operator
+  namespace: platform-operators
+  labels:
+    app: storage-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: storage-operator
+  template:
+    metadata:
+      labels:
+        app: storage-operator
+    spec:
+      serviceAccountName: storage-operator
+      containers:
+        - name: operator
+          image: ghcr.io/faroshq/storage-operator:latest
+          args:
+            - --kcp-kubeconfig=/etc/kcp/kubeconfig
+            - --workload-kubeconfig=/etc/workload/kubeconfig
+            - --openmeter-url=http://openmeter.openmeter.svc:8888
+          env:
+            - name: OPENMETER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openmeter-credentials
+                  key: token
+          ports:
+            - containerPort: 8080
+              name: metrics
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: kcp-kubeconfig
+              mountPath: /etc/kcp
+              readOnly: true
+            - name: workload-kubeconfig
+              mountPath: /etc/workload
+              readOnly: true
+      volumes:
+        - name: kcp-kubeconfig
+          secret:
+            secretName: kcp-operator-kubeconfig
+        - name: workload-kubeconfig
+          secret:
+            secretName: workload-kubeconfig
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: storage-operator
+  namespace: platform-operators
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: storage-operator
+  namespace: platform-operators
+spec:
+  selector:
+    app: storage-operator
+  ports:
+    - port: 8080
+      targetPort: metrics
+      name: metrics

@@ -1,0 +1,62 @@
+# =============================================================================
+# Pod Security Standards - Namespace Template
+# =============================================================================
+# This file provides a template Namespace with Pod Security Standards (PSS)
+# labels applied. These labels instruct the built-in Kubernetes Pod Security
+# Admission controller to enforce security policies on all pods in the
+# namespace.
+#
+# Security levels (from least to most restrictive):
+#   - privileged: No restrictions (default if no labels are set)
+#   - baseline:   Prevents known privilege escalations
+#   - restricted: Heavily restricted, follows security best practices
+#
+# Label modes:
+#   - enforce: Reject pods that violate the policy
+#   - audit:   Log violations in the audit log but allow the pod
+#   - warn:    Show a warning to the user but allow the pod
+#
+# This template uses "restricted" for all three modes, which is the
+# recommended configuration for tenant namespaces in a multi-tenant
+# sovereign cloud deployment.
+#
+# Usage:
+#   1. Copy this template for each new tenant namespace
+#   2. Update the namespace name and labels as needed
+#   3. Apply with: kubectl apply -f <filename>.yaml
+#
+# For more information:
+#   https://kubernetes.io/docs/concepts/security/pod-security-standards/
+#   https://kubernetes.io/docs/concepts/security/pod-security-admission/
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  # Template name - replace with the actual tenant namespace name
+  name: tenant-example
+  labels:
+    # -------------------------------------------------------------------------
+    # Pod Security Standards labels
+    # -------------------------------------------------------------------------
+    # Enforce: pods violating the restricted profile will be REJECTED
+    pod-security.kubernetes.io/enforce: restricted
+    # Enforce version: pin to a specific Kubernetes version for stability
+    # This ensures the policy does not change unexpectedly on cluster upgrades
+    pod-security.kubernetes.io/enforce-version: latest
+
+    # Audit: violations are recorded in the API server audit log
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+
+    # Warn: users see a warning when creating pods that violate the policy
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+
+    # -------------------------------------------------------------------------
+    # Additional labels for tenant identification
+    # -------------------------------------------------------------------------
+    app.kubernetes.io/part-of: sovereign-cloud-platform
+    # Identify this as a tenant namespace (useful for network policies, RBAC)
+    tenant.platform/type: workload
+    # Tenant identifier - replace with actual tenant name
+    tenant.platform/name: example

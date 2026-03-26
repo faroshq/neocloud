@@ -1,0 +1,116 @@
+# =============================================================================
+# Prometheus (kube-prometheus-stack) Helm Values — Workload Cluster
+# =============================================================================
+#
+# Deployment target: each workload cluster
+#
+# Federation pattern:
+#   Each workload cluster runs a lightweight Prometheus instance that scrapes
+#   local targets (kubelet, node-exporter, kube-state-metrics, GPU metrics, etc.)
+#   and remote-writes the data to a centralized VictoriaMetrics instance on the
+#   management cluster. This keeps per-cluster storage minimal (24h retention)
+#   while giving the management plane long-term, cross-cluster visibility.
+#
+#   Grafana and Alertmanager are disabled on workload clusters because both run
+#   centrally on the management cluster, reading from VictoriaMetrics.
+#
+# Install:
+#   helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+#     -n monitoring --create-namespace -f prometheus-values.yaml
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Prometheus server configuration
+# ---------------------------------------------------------------------------
+prometheus:
+  prometheusSpec:
+    # Keep data locally for 24 hours only; VictoriaMetrics is the durable store.
+    retention: 24h
+
+    # Remote-write ships every scraped metric to the central VictoriaMetrics
+    # instance running on the management cluster.
+    #
+    # NOTE: The URL below assumes in-cluster DNS resolution. When the
+    # management cluster is a separate Kubernetes cluster you must replace this
+    # with a routable endpoint, for example:
+    #   https://victoriametrics.mgmt.example.com/api/v1/write
+    # You may also need to add basicAuth or bearerToken for authentication.
+    remoteWrite:
+      - url: "http://victoria-metrics.monitoring.svc:8428/api/v1/write"
+        # Optional queue tuning — uncomment and adjust if needed:
+        # queueConfig:
+        #   maxSamplesPerSend: 5000
+        #   capacity: 10000
+        #   maxShards: 30
+
+    # Scrape interval for all jobs unless overridden by a ServiceMonitor.
+    scrapeInterval: 30s
+
+    # ServiceMonitor selector — pick up monitors from all namespaces.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorNamespaceSelector: {}
+
+    # Resource requests/limits for the Prometheus pods.
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+
+    # Storage — ephemeral is fine because data is remote-written, but a small
+    # PVC avoids data loss during pod restarts within the 24h window.
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 20Gi
+
+  # -------------------------------------------------------------------------
+  # Additional ServiceMonitor: NVIDIA DCGM Exporter
+  # -------------------------------------------------------------------------
+  # Scrapes GPU metrics (utilization, temperature, memory, ECC errors, etc.)
+  # exposed by the DCGM exporter deployed by the NVIDIA GPU Operator.
+  additionalServiceMonitors:
+    - name: nvidia-dcgm-exporter
+      # The DCGM exporter runs in the gpu-operator namespace.
+      namespaceSelector:
+        matchNames:
+          - gpu-operator
+      selector:
+        matchLabels:
+          app: nvidia-dcgm-exporter
+      endpoints:
+        - port: gpu-metrics
+          interval: 15s
+          # Honor the labels set by DCGM (gpu, UUID, model, etc.)
+          honorLabels: true
+
+# ---------------------------------------------------------------------------
+# Grafana — disabled on workload clusters
+# ---------------------------------------------------------------------------
+# Grafana runs centrally on the management cluster and reads from
+# VictoriaMetrics, so there is no need to deploy it per workload cluster.
+grafana:
+  enabled: false
+
+# ---------------------------------------------------------------------------
+# Alertmanager — disabled on workload clusters
+# ---------------------------------------------------------------------------
+# Alert evaluation and routing happens centrally on the management cluster.
+# PrometheusRules defined here are still evaluated by the local Prometheus
+# and forwarded via remote-write; the central Alertmanager handles routing.
+alertmanager:
+  enabled: false
+
+# ---------------------------------------------------------------------------
+# Default exporters — keep the standard set enabled
+# ---------------------------------------------------------------------------
+nodeExporter:
+  enabled: true
+
+kubeStateMetrics:
+  enabled: true

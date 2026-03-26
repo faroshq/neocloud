@@ -1,0 +1,33 @@
+# CephBlockPool - Replicated block storage pool
+#
+# A CephBlockPool defines how data is stored and protected in the Ceph cluster.
+# This pool uses triple replication (size: 3) with host-level failure domain,
+# meaning each copy of the data is placed on a different host. This tolerates
+# the complete loss of any single node without data loss.
+#
+# This pool backs the ceph-block StorageClass and is used for RWO PersistentVolumes
+# (block devices attached to pods, VMs, databases, etc.).
+#
+# Sizing note:
+#   With replication size 3, every 1 GiB of logical data consumes 3 GiB of raw
+#   storage. Plan raw capacity accordingly.
+---
+apiVersion: ceph.rook.io/v1
+kind: CephBlockPool
+metadata:
+  name: replicapool
+  namespace: rook-ceph
+spec:
+  # --- Failure Domain ---
+  # "host" means replicas are spread across different hosts.
+  # Other options: "osd" (per-disk, less protection) or "rack"/"zone" (if
+  # CRUSH topology is configured for multi-rack/zone deployments).
+  failureDomain: host
+
+  # --- Replication ---
+  # size: number of copies of each object.
+  # requireSafeReplicaSize: true ensures Ceph will not reduce below min_size
+  # replicas during recovery, preventing potential data loss.
+  replicated:
+    size: 3
+    requireSafeReplicaSize: true

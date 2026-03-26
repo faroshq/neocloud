@@ -1,0 +1,45 @@
+# Velero Helm Values
+#
+# Velero provides backup and restore for Kubernetes cluster resources
+# and persistent volumes. We use Ceph RGW (S3-compatible) as the
+# backup storage backend.
+#
+# Install: helm install velero vmware-tanzu/velero -n velero --create-namespace -f velero-values.yaml
+
+configuration:
+  backupStorageLocation:
+    - name: default
+      provider: aws
+      bucket: velero-backups
+      config:
+        s3Url: http://rook-ceph-rgw-tenant-store.rook-ceph.svc:80
+        s3ForcePathStyle: "true"
+        region: us-east-1               # Required by S3 API but ignored by Ceph
+  volumeSnapshotLocation:
+    - name: default
+      provider: csi
+
+snapshotsEnabled: true
+
+credentials:
+  useSecret: true
+  secretContents:
+    cloud: |
+      [default]
+      aws_access_key_id = REPLACE_WITH_CEPH_ACCESS_KEY
+      aws_secret_access_key = REPLACE_WITH_CEPH_SECRET_KEY
+
+initContainers:
+  - name: velero-plugin-for-aws
+    image: velero/velero-plugin-for-aws:v1.10.0
+    volumeMounts:
+      - name: plugins
+        mountPath: /target
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 1
+    memory: 1Gi

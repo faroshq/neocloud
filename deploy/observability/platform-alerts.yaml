@@ -1,0 +1,245 @@
+# =============================================================================
+# Platform PrometheusRule — Key Alerts
+# =============================================================================
+#
+# This PrometheusRule defines critical alerts for the sovereign cloud platform.
+# It is designed to be deployed on the management cluster where VictoriaMetrics
+# aggregates metrics from all workload clusters via remote-write.
+#
+# Alert routing is handled by the central Alertmanager (not included here).
+#
+# Apply:
+#   kubectl apply -f platform-alerts.yaml -n monitoring
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: platform-alerts
+  namespace: monitoring
+  labels:
+    # Picked up by Prometheus/VictoriaMetrics operator via ruleSelector.
+    role: alert-rules
+    prometheus: platform
+spec:
+  groups:
+    # =========================================================================
+    # KCP Control Plane
+    # =========================================================================
+    - name: kcp
+      rules:
+        # ---------------------------------------------------------------------
+        # KCPDown — the KCP API server is unreachable.
+        # Severity: critical — tenants cannot interact with the platform.
+        # ---------------------------------------------------------------------
+        - alert: KCPDown
+          expr: up{job="kcp"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            component: kcp
+          annotations:
+            summary: "KCP API server is down"
+            description: >-
+              The KCP API server (job={{ $labels.job }}, instance={{ $labels.instance }})
+              has been unreachable for more than 5 minutes. Tenant workspaces are
+              inaccessible.
+            runbook_url: "https://docs.example.com/runbooks/kcp-down"
+
+    # =========================================================================
+    # GPU / Accelerator Health
+    # =========================================================================
+    - name: gpu
+      rules:
+        # ---------------------------------------------------------------------
+        # GPUNodeNotReady — a node with GPU resources is not in Ready state.
+        # This often indicates a driver crash or hardware failure.
+        # ---------------------------------------------------------------------
+        - alert: GPUNodeNotReady
+          expr: |
+            kube_node_status_condition{condition="Ready", status="true"} == 0
+            and on(node)
+            kube_node_status_capacity{resource="nvidia_com_gpu"} > 0
+          for: 5m
+          labels:
+            severity: critical
+            component: gpu
+          annotations:
+            summary: "GPU node {{ $labels.node }} is not ready"
+            description: >-
+              Node {{ $labels.node }} has GPU capacity but has been in a
+              non-Ready state for more than 5 minutes. GPU workloads scheduled
+              on this node may be disrupted.
+            runbook_url: "https://docs.example.com/runbooks/gpu-node-not-ready"
+
+    # =========================================================================
+    # Storage — Ceph / Rook
+    # =========================================================================
+    - name: ceph
+      rules:
+        # ---------------------------------------------------------------------
+        # CephHealthWarning — the Ceph cluster is in HEALTH_WARN state.
+        # Could indicate degraded placement groups, slow OSDs, etc.
+        # ---------------------------------------------------------------------
+        - alert: CephHealthWarning
+          expr: ceph_health_status == 1
+          for: 10m
+          labels:
+            severity: warning
+            component: storage
+          annotations:
+            summary: "Ceph cluster health is WARN"
+            description: >-
+              The Ceph cluster has been in HEALTH_WARN state for more than
+              10 minutes. Check the Ceph dashboard or run `ceph status` for
+              details. Possible causes: degraded PGs, near-full OSDs, slow
+              operations.
+            runbook_url: "https://docs.example.com/runbooks/ceph-health-warning"
+
+    # =========================================================================
+    # Tenant Quotas
+    # =========================================================================
+    - name: quotas
+      rules:
+        # ---------------------------------------------------------------------
+        # TenantQuotaExhausted — a tenant has used >= 90% of their quota.
+        # Fires per resource (cpu, memory, pods, etc.).
+        # ---------------------------------------------------------------------
+        - alert: TenantQuotaExhausted
+          expr: |
+            (kube_resourcequota{type="used"} / kube_resourcequota{type="hard"}) >= 0.9
+          for: 15m
+          labels:
+            severity: warning
+            component: quota
+          annotations:
+            summary: "Tenant quota {{ $labels.resource }} at {{ $value | humanizePercentage }}"
+            description: >-
+              ResourceQuota {{ $labels.resourcequota }} in namespace
+              {{ $labels.namespace }} has used {{ $value | humanizePercentage }}
+              of the {{ $labels.resource }} hard limit. The tenant may soon be
+              unable to create new workloads.
+            runbook_url: "https://docs.example.com/runbooks/tenant-quota-exhausted"
+
+    # =========================================================================
+    # Metering — OpenMeter
+    # =========================================================================
+    - name: openmeter
+      rules:
+        # ---------------------------------------------------------------------
+        # OpenMeterIngestLag — the metering pipeline is lagging behind.
+        # If events are not ingested in time, billing may be inaccurate.
+        # ---------------------------------------------------------------------
+        - alert: OpenMeterIngestLag
+          expr: |
+            openmeter_ingest_lag_seconds > 300
+          for: 10m
+          labels:
+            severity: warning
+            component: metering
+          annotations:
+            summary: "OpenMeter ingest lag exceeds 5 minutes"
+            description: >-
+              The OpenMeter ingest pipeline has a lag of
+              {{ $value | humanizeDuration }}. Metering events may be delayed,
+              which can affect billing accuracy. Check the Kafka/Redpanda
+              consumer group and ClickHouse ingestion.
+            runbook_url: "https://docs.example.com/runbooks/openmeter-ingest-lag"
+
+    # =========================================================================
+    # Node Health
+    # =========================================================================
+    - name: node
+      rules:
+        # ---------------------------------------------------------------------
+        # HighCPUUsage — sustained high CPU on a node.
+        # Indicates potential noisy-neighbour issues or under-provisioning.
+        # ---------------------------------------------------------------------
+        - alert: HighCPUUsage
+          expr: |
+            (1 - avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) > 0.9
+          for: 15m
+          labels:
+            severity: warning
+            component: node
+          annotations:
+            summary: "High CPU usage on {{ $labels.instance }}"
+            description: >-
+              Node {{ $labels.instance }} has been running at
+              {{ $value | humanizePercentage }} CPU utilization for more than
+              15 minutes. Consider scaling out or investigating workloads.
+            runbook_url: "https://docs.example.com/runbooks/high-cpu-usage"
+
+    # =========================================================================
+    # Persistent Volumes
+    # =========================================================================
+    - name: volumes
+      rules:
+        # ---------------------------------------------------------------------
+        # PersistentVolumeNearFull — a PV is over 80% used.
+        # Fires before volumes hit capacity to allow proactive expansion.
+        # ---------------------------------------------------------------------
+        - alert: PersistentVolumeNearFull
+          expr: |
+            (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) > 0.8
+          for: 15m
+          labels:
+            severity: warning
+            component: storage
+          annotations:
+            summary: "PersistentVolume {{ $labels.persistentvolumeclaim }} is {{ $value | humanizePercentage }} full"
+            description: >-
+              PersistentVolumeClaim {{ $labels.persistentvolumeclaim }} in
+              namespace {{ $labels.namespace }} has used more than 80% of its
+              capacity. Expand the volume or clean up data to prevent write
+              failures.
+            runbook_url: "https://docs.example.com/runbooks/pv-near-full"
+
+    # =========================================================================
+    # TLS / Certificates
+    # =========================================================================
+    - name: certificates
+      rules:
+        # ---------------------------------------------------------------------
+        # CertificateExpiringSoon — a TLS certificate expires within 7 days.
+        # Works with cert-manager's x509_cert_not_after metric.
+        # ---------------------------------------------------------------------
+        - alert: CertificateExpiringSoon
+          expr: |
+            (x509_cert_not_after - time()) < (7 * 24 * 3600)
+          for: 1h
+          labels:
+            severity: warning
+            component: tls
+          annotations:
+            summary: "Certificate {{ $labels.subject_CN }} expires in less than 7 days"
+            description: >-
+              The TLS certificate for {{ $labels.subject_CN }}
+              (secret: {{ $labels.secret_name }}, namespace: {{ $labels.secret_namespace }})
+              will expire in {{ $value | humanizeDuration }}. If cert-manager is
+              managing this certificate, check the Certificate resource and
+              issuer status.
+            runbook_url: "https://docs.example.com/runbooks/cert-expiring"
+
+    # =========================================================================
+    # Identity — Zitadel
+    # =========================================================================
+    - name: zitadel
+      rules:
+        # ---------------------------------------------------------------------
+        # ZitadelDown — the Zitadel identity provider is unreachable.
+        # Severity: critical — OIDC login and token validation will fail.
+        # ---------------------------------------------------------------------
+        - alert: ZitadelDown
+          expr: up{job="zitadel"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            component: identity
+          annotations:
+            summary: "Zitadel identity provider is down"
+            description: >-
+              The Zitadel instance (job={{ $labels.job }},
+              instance={{ $labels.instance }}) has been unreachable for more
+              than 5 minutes. OIDC authentication for Grafana, the developer
+              console, and API access is impacted.
+            runbook_url: "https://docs.example.com/runbooks/zitadel-down"

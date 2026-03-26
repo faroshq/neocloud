@@ -1,0 +1,62 @@
+# Velero Backup Schedules
+#
+# Automated backup schedules for platform components.
+
+# Daily backup of all platform namespaces
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: platform-daily
+  namespace: velero
+spec:
+  schedule: "0 2 * * *"              # Daily at 2:00 AM
+  template:
+    includedNamespaces:
+      - kcp-system
+      - zitadel
+      - openmeter
+      - platform-operators
+      - platform-system
+      - monitoring
+    includedResources:
+      - "*"
+    storageLocation: default
+    ttl: 720h                         # Retain for 30 days
+  useOwnerReferencesInBackup: false
+---
+# Hourly backup of critical state (secrets, configmaps, CRDs)
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: critical-hourly
+  namespace: velero
+spec:
+  schedule: "15 * * * *"             # Hourly at :15
+  template:
+    includedNamespaces:
+      - kcp-system
+      - zitadel
+    includedResources:
+      - secrets
+      - configmaps
+      - persistentvolumeclaims
+    storageLocation: default
+    ttl: 168h                         # Retain for 7 days
+  useOwnerReferencesInBackup: false
+---
+# Weekly backup of all tenant namespaces
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: tenants-weekly
+  namespace: velero
+spec:
+  schedule: "0 3 * * 0"             # Weekly on Sunday at 3:00 AM
+  template:
+    includedNamespaces:
+      - "tenant-*"                    # All tenant namespaces
+    includedResources:
+      - "*"
+    storageLocation: default
+    ttl: 2160h                        # Retain for 90 days
+  useOwnerReferencesInBackup: false

@@ -1,0 +1,83 @@
+# KubeVirt Custom Resource - Virtual machine management
+#
+# This resource configures the KubeVirt operator to deploy and manage
+# virtual machine infrastructure on Kubernetes. KubeVirt enables running
+# traditional VM workloads alongside containers.
+#
+# Key features enabled:
+#   - GPU passthrough: Allows VMs to use physical NVIDIA GPUs via VFIO
+#   - HostDevices: Enables PCI device assignment to VMs
+#
+# GPU Passthrough Architecture:
+#   When a VM requests a GPU, KubeVirt uses VFIO-PCI to detach the GPU
+#   from the host kernel driver and pass it directly to the VM's QEMU
+#   process. The VM sees the GPU as a native PCI device and can install
+#   its own NVIDIA driver inside the guest OS.
+#
+# Prerequisites:
+#   - KubeVirt operator installed
+#   - IOMMU enabled in BIOS and kernel (intel_iommu=on or amd_iommu=on)
+#   - vfio-pci kernel module loaded on GPU nodes
+#   - GPU nodes must NOT have the NVIDIA host driver bound to GPUs
+#     intended for VM passthrough (mutually exclusive with container GPU use)
+---
+apiVersion: kubevirt.io/v1
+kind: KubeVirt
+metadata:
+  name: kubevirt
+  namespace: kubevirt
+spec:
+  # --- Feature Gates ---
+  # Feature gates enable optional KubeVirt capabilities.
+  configuration:
+    developerConfiguration:
+      featureGates:
+        # GPU: Enables GPU resource assignment to VMs.
+        # This allows VMs to request nvidia.com/gpu or specific PCI devices.
+        - GPU
+
+        # HostDevices: Enables generic PCI device passthrough to VMs.
+        # Required for passing through GPUs, FPGAs, NICs, or other PCI
+        # devices using VFIO.
+        - HostDevices
+
+    # --- Permitted Host Devices ---
+    # Define which PCI devices on the host can be passed through to VMs.
+    # Each entry maps a PCI vendor/device ID to a Kubernetes resource name
+    # that can be requested in VM specs.
+    permittedHostDevices:
+      pciHostDevices:
+        # NVIDIA GPU passthrough
+        # PCI vendor ID 10DE = NVIDIA Corporation
+        # The wildcard device ID (*) allows any NVIDIA GPU model.
+        #
+        # To restrict to specific GPU models, use the exact device ID:
+        #   - A100: 10DE:20B0
+        #   - H100: 10DE:2330
+        #   - L40S: 10DE:26B9
+        #
+        # The resourceName is what VMs use to request the device:
+        #   spec.domain.devices.gpus:
+        #     - name: gpu1
+        #       deviceName: nvidia.com/gpu-passthrough
+        - pciVendorSelector: "10DE:"
+          resourceName: nvidia.com/gpu-passthrough
+          externalResourceProvider: false
+
+  # --- Workload Update Strategy ---
+  # Controls how running VMs are handled during KubeVirt upgrades.
+  workloadUpdateStrategy:
+    workloadUpdateMethods:
+      - LiveMigrate
+
+  # --- Infra and Workload Placement ---
+  # Optionally restrict KubeVirt infrastructure (virt-handler, virt-launcher)
+  # and VM workloads to specific nodes.
+  # infra:
+  #   nodePlacement:
+  #     nodeSelector:
+  #       node-role.kubernetes.io/infra: ""
+  # workloads:
+  #   nodePlacement:
+  #     nodeSelector:
+  #       nodepool: cpu
