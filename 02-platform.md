@@ -61,7 +61,7 @@ All of these are provided by Layer 1.
                Web Console  .  CLI  .  kubectl
                           |
                           | OIDC (Google, GitHub, ...)
-                          | via Zitadel
+                          | via Dex (OIDC)
                           v
                KCP  (Multi-Tenant Control Plane)
     +------------+ +------------+ +------------+ +-----------+
@@ -176,37 +176,32 @@ Supported external identity providers (federated through the platform IdP):
 - Corporate IdPs (SAML, LDAP via federation)
 - Any OIDC-compliant provider
 
-### Zitadel -- The Default Identity Provider
+### Dex -- The Default Identity Broker
 
-Zitadel is the default identity provider. It serves as the OIDC broker between external providers and KCP.
+Dex is the default OIDC broker for Layer 2. It federates external identity providers (Google, GitHub) into a single OIDC issuer that KCP trusts.
 
-**Why Zitadel:**
+**Why Dex:**
 
-| Requirement | Zitadel | Dex | Keycloak |
-|-------------|---------|-----|----------|
-| OIDC brokering (Google, GitHub) | Yes | Yes | Yes |
-| User management / profiles | Yes | No | Yes |
-| API keys / machine users | Yes (PAT) | No | Yes |
-| Device auth grant (for CLI) | Yes | No | Configurable |
-| Multi-tenancy | Built-in (orgs) | No | Realms |
-| Language | Go | Go | Java |
-| RAM footprint | ~256MB | ~50MB | ~512MB-1GB |
-| API-first | gRPC + REST | REST only | REST (UI-first) |
-| Origin | Swiss (CAOS AG, Zurich) | US (CoreOS/Red Hat) | US (Red Hat) |
+- **Apache 2.0** -- fully permissive, no copyleft
+- **Go** -- same language as KCP and the rest of the stack
+- **~50MB RAM** -- smallest footprint of any OIDC broker
+- **Simple** -- static YAML config, no database required
+- **Proven** -- used by Kubernetes itself, ArgoCD, and many CNCF projects
+- **Connectors** -- Google, GitHub, GitLab, LDAP, SAML, OIDC
 
-Zitadel is the best balance between features and footprint for this use case. It is written in Go (same as the rest of the platform), API-first (critical for automation), supports device authorization grant (required for CLI auth), and is multi-tenant by design.
+Dex is a pure broker -- it authenticates users via upstream providers and issues JWTs. It does **not** manage users, API keys, or profiles. For those features, upgrade to Zitadel in Layer 3.
 
-### Dex as Lightweight Alternative
+### Upgrading to Zitadel (Layer 3)
 
-For simpler deployments that do not need user management or device auth, **Dex** is a viable lightweight alternative. It runs at ~50MB RAM and provides basic OIDC federation. However, the CLI device auth flow and machine user PATs will need to be implemented differently.
+When you need user management, API keys (PATs), device authorization for CLI, or org/team hierarchy, upgrade to **Zitadel** (see `03-production.md`). The swap is seamless -- only `--oidc-issuer-url` changes on KCP.
 
 ### Interface-Based Design
 
-The identity provider is behind a well-defined OIDC interface. To swap Zitadel for another provider, the replacement must:
+The identity provider is behind a well-defined OIDC interface. To swap providers, the replacement must:
 
 1. Issue JWTs with the expected claims (`sub`, `email`, `groups`)
-2. Support the device authorization grant (for CLI)
-3. Expose a JWKS endpoint for KCP token verification
+2. Expose a JWKS endpoint for KCP token verification
+3. Support the authorization code flow (for web console)
 
 KCP's `--oidc-issuer-url` is the only configuration point that changes. The rest of the platform is unaware of which IdP is running.
 
@@ -215,38 +210,28 @@ KCP's `--oidc-issuer-url` is the only configuration point that changes. The rest
 **Web Console (authorization code flow):**
 
 ```
-Browser --> Console --> Zitadel --> User authenticates --> JWT --> KCP
+Browser --> Console --> Dex --> Google/GitHub --> JWT --> KCP
 ```
 
-The console redirects to Zitadel, user logs in (or uses Google/GitHub), Zitadel issues a JWT, console uses it for KCP API calls.
+The console redirects to Dex, Dex redirects to the upstream provider (Google/GitHub), user authenticates, Dex issues a JWT, console uses it for KCP API calls.
 
-**CLI (device authorization grant):**
+**CLI (token-based):**
 
 ```
 $ cloud login
-Open this URL in your browser: https://auth.cloud.example.com/device
-Enter code: ABCD-1234
-
-Waiting for authorization... done.
+Opening browser for authentication...
 Logged in as user@example.com (workspace: tenant-xyz)
 ```
 
-The CLI requests a device code from Zitadel, user approves in a browser, CLI polls for the token. Tokens are cached locally and refreshed automatically.
+The CLI opens a browser for the OIDC authorization code flow with a local callback. Tokens are cached locally and refreshed automatically. For headless environments, upgrade to Zitadel (Layer 3) which supports the device authorization grant.
 
-**Programmatic (personal access tokens / client credentials):**
+**Programmatic:**
 
-```
-Machine user --> Zitadel PAT or client_credentials --> JWT --> KCP
-```
+For CI/CD and automation in Layer 2, use static tokens or service account kubeconfigs generated by KCP. For proper machine-to-machine auth with PATs, upgrade to Zitadel (Layer 3).
 
-For CI/CD pipelines, scripts, and automation. Machine users are created in Zitadel with PATs that do not expire (or have long expiry).
+### License
 
-### License Note
-
-- **Zitadel server:** AGPL-3.0 (deployed unmodified -- no copyleft impact on platform code)
-- **Zitadel SDKs / API protos:** Apache 2.0 / MIT (CLI and console integrate freely)
-
-> Reference: `deploy/zitadel/`
+- **Dex:** Apache 2.0
 
 ---
 
@@ -588,7 +573,7 @@ The onboarding controller does not create anything on the workload cluster. Work
 The custom CLI (`cloud` or provider-branded) is the primary programmatic interface to the platform. It wraps kubectl with platform-specific workflows:
 
 ```
-$ cloud login                    # Device auth via Zitadel
+$ cloud login                    # OIDC auth via Dex
 $ cloud workspace list           # List my workspaces
 $ cloud create compute my-app    # Create a container workload
 $ cloud create notebook my-nb    # Create a Jupyter notebook
@@ -597,20 +582,17 @@ $ cloud status                   # Show resource usage and quotas
 $ cloud kubeconfig               # Get kubeconfig for kubectl
 ```
 
-### Device Auth via Zitadel
+### OIDC Login via Dex
 
-The CLI uses Zitadel's device authorization grant, which works on headless servers and in environments where the CLI cannot open a browser:
+The CLI uses the OIDC authorization code flow with a local callback:
 
 ```
 $ cloud login
-Open this URL in your browser: https://auth.cloud.example.com/device
-Enter code: ABCD-1234
-
-Waiting for authorization... done.
+Opening browser for authentication...
 Logged in as user@example.com (workspace: tenant-xyz)
 ```
 
-Tokens are stored locally (`~/.config/cloud/tokens.json`) and refreshed automatically. No passwords are stored.
+Tokens are stored locally (`~/.config/cloud/tokens.json`) and refreshed automatically. No passwords are stored. For headless/device auth, upgrade to Zitadel in Layer 3.
 
 ### SSH Tunneling
 
@@ -649,7 +631,7 @@ Tenants who prefer kubectl can use it directly. The CLI is a convenience wrapper
 
 The web console is a multi-tenant dashboard for tenants who prefer a GUI:
 
-- **Login** -- OIDC via Zitadel (Google, GitHub, etc.)
+- **Login** -- OIDC via Dex (Google, GitHub, etc.)
 - **Resource management** -- create, view, delete workloads (Compute, VMs, Notebooks, GPU jobs)
 - **Workload access** -- one-click links to Jupyter notebooks, VM consoles
 - **Settings** -- SSH keys, API tokens, workspace configuration
@@ -660,7 +642,7 @@ The web console is a multi-tenant dashboard for tenants who prefer a GUI:
 The console is a single-page application (SPA) that talks directly to:
 
 - **KCP** -- for resource CRUD (standard Kubernetes API with JWT auth)
-- **Zitadel** -- for authentication (OIDC authorization code flow)
+- **Dex** -- for authentication (OIDC authorization code flow)
 
 No backend-for-frontend is needed. The console is a static site that uses the existing APIs. It can be served from any static hosting or as a container on the management cluster.
 
@@ -738,7 +720,7 @@ Tenant-facing metrics are exposed through the web console status page, not Grafa
 |-----------|------|---------|-------------|
 | **KCP** | Multi-tenant control plane | Apache 2.0 | -- |
 | **kcp-operator** | KCP deployment and lifecycle | Apache 2.0 | -- |
-| **Zitadel** | Identity / OIDC broker | AGPL-3.0 (server) | -- |
+| **Dex** | OIDC broker | Apache 2.0 | -- |
 | **Cloud Operator** | Reconciles all platform API types | Apache 2.0 | -- |
 | **Onboarding Controller** | Provisions tenant workspaces | Apache 2.0 | -- |
 | **Custom CLI** | Tenant CLI (login, ssh, create) | Apache 2.0 | -- |
@@ -749,7 +731,7 @@ Tenant-facing metrics are exposed through the web console status page, not Grafa
 
 ### License Note
 
-No BSL, SSPL, or proprietary licenses in the stack. AGPL components (Zitadel, Grafana) are deployed unmodified -- no copyleft impact on platform code. Layer 1 components (Kubernetes, Cilium, KubeVirt, GPU Operator, Rook-Ceph, cert-manager, MetalLB) are all Apache 2.0.
+No BSL, SSPL, or proprietary licenses in the stack. Grafana (AGPL-3.0) is the only copyleft component, deployed unmodified. All other components are Apache 2.0.
 
 ---
 
@@ -762,7 +744,7 @@ No BSL, SSPL, or proprietary licenses in the stack. AGPL components (Zitadel, Gr
 The demo walks through the complete tenant experience on Layer 2:
 
 ```
-1. DEPLOY    -- Deploy KCP, Zitadel, Cloud Operator, Console on
+1. DEPLOY    -- Deploy KCP, Dex, Cloud Operator, Console on
                 management cluster. Platform APIs registered.
 
 2. LOGIN     -- User authenticates via CLI or Console.
