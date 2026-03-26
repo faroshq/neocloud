@@ -303,7 +303,8 @@ No BSL, SSPL, or proprietary licenses. No commercial components required.
 | Document | What it is | Audience |
 |----------|-----------|----------|
 | **overview.md** (this file) | Simplified architecture overview | Everyone |
-| **whitepaper.md** | Full reference architecture with all decisions | Architects, evaluators |
+| **01-compute-platform.md** | Paper 1: Compute platform architecture | Architects, evaluators |
+| **02-billing-metering.md** | Paper 2: Billing and metering add-on | Architects, evaluators |
 | **deployment.md** | Production deployment guide (20 phases) | Platform operators |
 | **demo.md** | Quick demo setup guide | Developers, demo presenters |
 | **deploy/** | 83 YAML manifests for all components | Platform operators |
@@ -318,7 +319,7 @@ No BSL, SSPL, or proprietary licenses. No commercial components required.
 2. Install Kubernetes (kubeadm or k3s)
 3. Install Cilium
 4. Install KCP
-5. Deploy one service operator (e.g., compute-operator)
+5. Deploy the cloud operator
 6. Create a tenant workspace
 7. Apply a Compute resource — see it running on the backend
 
