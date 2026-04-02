@@ -1,0 +1,26 @@
+{
+  "name": "kubernetes-pilet",
+  "version": "0.1.0",
+  "private": true,
+  "piral": {
+    "name": "platform-app-shell",
+    "version": "0.1.0"
+  },
+  "dependencies": {
+    "@mui/icons-material": "^6.4.0",
+    "@mui/material": "^6.4.0",
+    "react-router-dom": "^6.28.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "piral-cli": "^1.7.0",
+    "piral-cli-webpack5": "^1.7.0",
+    "platform-app-shell": "file:../../app-shell",
+    "typescript": "^5.7.0"
+  },
+  "scripts": {
+    "start": "pilet debug",
+    "build": "pilet build"
+  },
+  "main": "./src/index.tsx"
+}

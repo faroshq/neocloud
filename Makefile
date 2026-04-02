@@ -1,4 +1,4 @@
-.PHONY: build build-platform build-console clean generate lint test tidy codegen crds tools verify-codegen docker-console run-console
+.PHONY: build build-platform build-cli build-console clean generate lint test tidy codegen crds tools verify-codegen docker-console run-console console-dev
 
 PLATFORM_DIR := project/platform
 CONSOLE_DIR := project/console
@@ -28,13 +28,16 @@ build-platform:
 build-cli:
 	cd $(PLATFORM_DIR) && go build -o ../../$(BINARY_DIR)/platform-cli ./cmd/cli
 
-build-console:
-	cd $(CONSOLE_DIR) && $(MAKE) build
+build-console: ## Build the Piral console app shell
+	cd $(CONSOLE_DIR) && npm install --workspaces && cd app-shell && npm run build
 
-docker-console:
-	cd $(CONSOLE_DIR) && $(MAKE) docker-build
+console-dev: ## Run console in dev mode (hot reload on :1234)
+	cd $(CONSOLE_DIR)/app-shell && npm run start
 
-run-console: docker-console ## Build and run NeoCloud console
+docker-console: ## Build console Docker image
+	cd $(CONSOLE_DIR) && docker build -t platform-console:latest .
+
+run-console: docker-console ## Build and run NeoCloud console via Docker
 	docker rm -f platform-console 2>/dev/null || true
 	docker run --name platform-console -p 4466:4466 platform-console:latest
 	@echo "Console running at http://localhost:4466/"
@@ -68,7 +71,9 @@ $(KCP_APIGEN_GEN):
 clean:
 	rm -rf $(BINARY_DIR)
 	rm -rf $(PLATFORM_DIR)/hack/tools
-	cd $(CONSOLE_DIR) && $(MAKE) clean
+	rm -rf $(CONSOLE_DIR)/app-shell/dist $(CONSOLE_DIR)/app-shell/node_modules
+	rm -rf $(CONSOLE_DIR)/pilets/*/dist $(CONSOLE_DIR)/pilets/*/node_modules
+	rm -rf $(CONSOLE_DIR)/node_modules
 
 generate:
 	cd $(PLATFORM_DIR) && go generate ./...

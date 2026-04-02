@@ -215,7 +215,9 @@ func (s *Server) Run(ctx context.Context) error {
 		logger.Info("kcp API proxy enabled", "oidc", authHandler != nil, "staticTokens", len(s.opts.StaticAuthTokens))
 	}
 
-	// Console: reverse proxy to NeoCloud console instance.
+	// Console: reverse proxy to NeoCloud console (Piral SPA).
+	// The console container serves its SPA at /console/ with nginx.
+	// All paths are forwarded as-is; the console handles SPA fallback.
 	if s.opts.ConsoleAddr != "" {
 		consoleTarget := &url.URL{Scheme: "http", Host: s.opts.ConsoleAddr}
 		consoleProxy := &httputil.ReverseProxy{
@@ -225,9 +227,7 @@ func (s *Server) Run(ctx context.Context) error {
 				req.Host = consoleTarget.Host
 			},
 		}
-		router.PathPrefix("/console").Handler(
-			http.StripPrefix("/console", consoleProxy),
-		)
+		router.PathPrefix("/console").Handler(consoleProxy)
 		logger.Info("NeoCloud console proxy enabled", "target", consoleTarget.String())
 	}
 

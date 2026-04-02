@@ -1,0 +1,41 @@
+{
+  "name": "platform-app-shell",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.0",
+    "@mui/icons-material": "^6.4.0",
+    "@mui/material": "^6.4.0",
+    "piral-core": "^1.7.0",
+    "piral-dashboard": "^1.7.0",
+    "piral-menu": "^1.7.0",
+    "piral-notifications": "^1.7.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "html-webpack-plugin": "^5.6.6",
+    "piral-cli": "^1.7.0",
+    "piral-cli-webpack5": "^1.7.0",
+    "typescript": "^5.7.0"
+  },
+  "scripts": {
+    "start": "piral debug --public-url /console",
+    "build": "piral build",
+    "declaration": "piral declaration"
+  },
+  "app": "./src/index.tsx",
+  "pilets": {
+    "externals": [
+      "@mui/material",
+      "@mui/icons-material",
+      "@emotion/react",
+      "@emotion/styled",
+      "react-router-dom"
+    ]
+  }
+}

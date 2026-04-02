@@ -1,23 +1,18 @@
-.PHONY: build install clean docker-build
-
-PLUGINS := platform-shell platform-compute platform-kubernetes
+.PHONY: install build dev clean docker-build
 
 install:
-	@for p in $(PLUGINS); do \
-		echo "Installing $$p..."; \
-		cd plugins/$$p && npm install && cd ../..; \
-	done
+	npm install --workspaces
 
 build: install
-	@for p in $(PLUGINS); do \
-		echo "Building $$p..."; \
-		cd plugins/$$p && npm run build && cd ../..; \
-	done
+	cd app-shell && npm run build
+
+dev:
+	cd app-shell && npm run start
 
 clean:
-	@for p in $(PLUGINS); do \
-		rm -rf plugins/$$p/dist plugins/$$p/node_modules; \
-	done
+	rm -rf app-shell/dist app-shell/node_modules
+	rm -rf pilets/*/dist pilets/*/node_modules
+	rm -rf node_modules
 
 docker-build:
 	docker build -t platform-console:latest .
