@@ -227,7 +227,12 @@ func (s *Server) Run(ctx context.Context) error {
 				req.Host = consoleTarget.Host
 			},
 		}
-		router.PathPrefix("/console").Handler(consoleProxy)
+		// Ensure /console (no trailing slash) gets a trailing slash so
+		// React Router's basename="/console/" matches.
+		router.HandleFunc("/console", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/console/", http.StatusMovedPermanently)
+		})
+		router.PathPrefix("/console/").Handler(consoleProxy)
 		logger.Info("NeoCloud console proxy enabled", "target", consoleTarget.String())
 	}
 

@@ -73,5 +73,5 @@ export function handleAuthCallback(): boolean {
 
 export function signOut(): void {
   clearAuth();
-  window.location.href = '/console';
+  window.location.href = '/console/';
 }

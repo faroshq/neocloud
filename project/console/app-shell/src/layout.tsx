@@ -65,7 +65,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       if (success) {
         setAuthState('authenticated');
         // Use window.location to do a clean redirect after storing tokens.
-        window.location.replace('/console');
+        window.location.replace('/console/');
       } else {
         setAuthState('unauthenticated');
       }
@@ -122,7 +122,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           <Toolbar>
             <Box
               sx={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-              onClick={() => navigate('/console')}
+              onClick={() => navigate('/')}
             >
               <NeoCloudLogo />
             </Box>
@@ -170,9 +170,9 @@ interface NavItemsProps {
 
 const NavItems: React.FC<NavItemsProps> = ({ navigate, currentPath }) => {
   const items = [
-    { label: 'Dashboard', path: '/console' },
-    { label: 'Virtual Machines', path: '/console/vm' },
-    { label: 'Kubernetes Clusters', path: '/console/kc' },
+    { label: 'Dashboard', path: '/' },
+    { label: 'Virtual Machines', path: '/vm' },
+    { label: 'Kubernetes Clusters', path: '/kc' },
   ];
 
   return (

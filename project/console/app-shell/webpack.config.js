@@ -11,7 +11,7 @@ module.exports = (config) => {
   );
 
   // Set output publicPath for SPA routing.
-  config.output.publicPath = '/console/';
+  config.output.publicPath = '/console';
 
   return config;
 };
