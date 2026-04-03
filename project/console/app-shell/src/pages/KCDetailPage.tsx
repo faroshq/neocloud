@@ -1,10 +1,27 @@
 import * as React from 'react';
 import {
-  Box, Typography, Paper, CircularProgress, Chip, Button,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Box,
+  Typography,
+  Paper,
+  CircularProgress,
+  Button,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  alpha,
 } from '@mui/material';
+import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded';
 import { useParams, useNavigate } from 'react-router-dom';
 import { kcApi, type K8sResource } from './api';
+import { keyframes } from '@emotion/react';
+
+const pulse = keyframes`
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+`;
 
 export const KCDetailPage: React.FC = () => {
   const { name } = useParams<{ name: string }>();
@@ -15,41 +32,164 @@ export const KCDetailPage: React.FC = () => {
 
   React.useEffect(() => {
     if (!name) return;
-    kcApi.get(name)
+    kcApi
+      .get(name)
       .then(setCluster)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [name]);
 
-  if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}><CircularProgress /></Box>;
-  if (error) return <Typography color="error">{error}</Typography>;
-  if (!cluster) return <Typography>Cluster not found</Typography>;
+  if (loading) {
+    return (
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          minHeight: 400,
+        }}
+      >
+        <CircularProgress size={28} sx={{ color: '#818cf8' }} />
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Box
+        sx={{
+          p: 3,
+          borderRadius: 2,
+          bgcolor: alpha('#f87171', 0.08),
+          border: '1px solid',
+          borderColor: alpha('#f87171', 0.2),
+        }}
+      >
+        <Typography sx={{ color: '#f87171', fontSize: '0.875rem' }}>
+          {error}
+        </Typography>
+      </Box>
+    );
+  }
+
+  if (!cluster) {
+    return (
+      <Typography color="text.secondary">Cluster not found</Typography>
+    );
+  }
 
   const spec = (cluster.spec || {}) as Record<string, unknown>;
   const status = (cluster.status || {}) as Record<string, unknown>;
-  const conditions = (status.conditions as Array<Record<string, string>>) || [];
+  const conditions =
+    (status.conditions as Array<Record<string, string>>) || [];
   const available = conditions.find((c) => c.type === 'Available');
-  const statusLabel = available?.status === 'True' ? 'Available' : 'Pending';
+  const isAvailable = available?.status === 'True';
+  const statusLabel = isAvailable ? 'Available' : 'Pending';
+  const statusColor = isAvailable ? '#34d399' : '#fbbf24';
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-        <Button variant="text" onClick={() => navigate('/kc')}>&larr; Back</Button>
-        <Typography variant="h5">{cluster.metadata.name}</Typography>
-        <Chip label={statusLabel} color={statusLabel === 'Available' ? 'success' : 'warning'} />
+      {/* Header */}
+      <Box sx={{ mb: 4 }}>
+        <Button
+          startIcon={<ArrowBackRoundedIcon sx={{ fontSize: 16 }} />}
+          onClick={() => navigate('/kc')}
+          sx={{
+            color: '#71717a',
+            fontSize: '0.8125rem',
+            mb: 1.5,
+            px: 0,
+            '&:hover': { color: '#fafafa', bgcolor: 'transparent' },
+          }}
+        >
+          Kubernetes Clusters
+        </Button>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Typography variant="h5">{cluster.metadata.name}</Typography>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.75,
+              px: 1.25,
+              py: 0.375,
+              borderRadius: 1.5,
+              bgcolor: alpha(statusColor, 0.1),
+              border: '1px solid',
+              borderColor: alpha(statusColor, 0.2),
+            }}
+          >
+            <Box
+              sx={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                bgcolor: statusColor,
+                animation: !isAvailable
+                  ? `${pulse} 2s ease-in-out infinite`
+                  : 'none',
+              }}
+            />
+            <Typography
+              sx={{
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                color: statusColor,
+              }}
+            >
+              {statusLabel}
+            </Typography>
+          </Box>
+        </Box>
       </Box>
 
-      <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-        <Paper sx={{ p: 3, flex: '1 1 400px', maxWidth: 500 }}>
-          <Typography variant="h6" gutterBottom>Specification</Typography>
-          <InfoRow label="Version" value={spec.version} />
-          <InfoRow label="Node Count" value={spec.nodeCount} />
+      {/* Specification */}
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+          gap: 2,
+        }}
+      >
+        <Paper sx={{ p: 0, overflow: 'hidden' }}>
+          <Box
+            sx={{
+              px: 2.5,
+              py: 1.5,
+              borderBottom: '1px solid rgba(255,255,255,0.06)',
+              bgcolor: 'rgba(255,255,255,0.02)',
+            }}
+          >
+            <Typography
+              sx={{ fontSize: '0.8125rem', fontWeight: 600 }}
+            >
+              Specification
+            </Typography>
+          </Box>
+          <Box sx={{ p: 2.5 }}>
+            <InfoRow label="Version" value={spec.version} mono />
+            <InfoRow label="Node Count" value={spec.nodeCount} mono />
+          </Box>
         </Paper>
       </Box>
 
+      {/* Conditions */}
       {conditions.length > 0 && (
-        <Paper sx={{ p: 3, mt: 3 }}>
-          <Typography variant="h6" gutterBottom>Conditions</Typography>
+        <Paper sx={{ mt: 2, p: 0, overflow: 'hidden' }}>
+          <Box
+            sx={{
+              px: 2.5,
+              py: 1.5,
+              borderBottom: '1px solid rgba(255,255,255,0.06)',
+              bgcolor: 'rgba(255,255,255,0.02)',
+            }}
+          >
+            <Typography
+              sx={{ fontSize: '0.8125rem', fontWeight: 600 }}
+            >
+              Conditions
+            </Typography>
+          </Box>
           <TableContainer>
             <Table size="small">
               <TableHead>
@@ -63,10 +203,65 @@ export const KCDetailPage: React.FC = () => {
               <TableBody>
                 {conditions.map((c, i) => (
                   <TableRow key={i}>
-                    <TableCell>{c.type}</TableCell>
-                    <TableCell>{c.status}</TableCell>
-                    <TableCell>{c.reason}</TableCell>
-                    <TableCell>{c.message}</TableCell>
+                    <TableCell>
+                      <Typography
+                        sx={{
+                          fontSize: '0.8125rem',
+                          fontWeight: 500,
+                        }}
+                      >
+                        {c.type}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 0.75,
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: '50%',
+                            bgcolor:
+                              c.status === 'True'
+                                ? '#34d399'
+                                : '#f87171',
+                          }}
+                        />
+                        <Typography
+                          sx={{
+                            fontSize: '0.8125rem',
+                            color: '#a1a1aa',
+                          }}
+                        >
+                          {c.status}
+                        </Typography>
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Typography
+                        sx={{
+                          fontSize: '0.8125rem',
+                          color: '#a1a1aa',
+                        }}
+                      >
+                        {c.reason}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography
+                        sx={{
+                          fontSize: '0.8125rem',
+                          color: '#71717a',
+                        }}
+                      >
+                        {c.message}
+                      </Typography>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -78,9 +273,34 @@ export const KCDetailPage: React.FC = () => {
   );
 };
 
-const InfoRow: React.FC<{ label: string; value: unknown }> = ({ label, value }) => (
-  <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
-    <Typography variant="body2" color="text.secondary">{label}</Typography>
-    <Typography variant="body2">{String(value ?? '-')}</Typography>
+const InfoRow: React.FC<{
+  label: string;
+  value: unknown;
+  mono?: boolean;
+}> = ({ label, value, mono }) => (
+  <Box
+    sx={{
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      py: 0.75,
+      '&:not(:last-child)': {
+        borderBottom: '1px solid rgba(255,255,255,0.04)',
+      },
+    }}
+  >
+    <Typography sx={{ fontSize: '0.8125rem', color: '#71717a' }}>
+      {label}
+    </Typography>
+    <Typography
+      sx={{
+        fontSize: '0.8125rem',
+        fontWeight: 500,
+        fontFamily: mono ? 'monospace' : 'inherit',
+        color: '#d4d4d8',
+      }}
+    >
+      {String(value ?? '-')}
+    </Typography>
   </Box>
 );
