@@ -1,4 +1,4 @@
-.PHONY: build build-platform build-cli build-console clean generate lint test tidy codegen crds tools verify-codegen docker-console run-console console-dev
+.PHONY: build build-platform build-cli build-console clean generate lint test tidy codegen crds tools verify-codegen docker-console run-console console-dev zitadel-up zitadel-down run-dev dev-login
 
 PLATFORM_DIR := project/platform
 CONSOLE_DIR := project/console
@@ -32,7 +32,7 @@ build-console: ## Build the Piral console app shell
 	cd $(CONSOLE_DIR) && npm install --workspaces && cd app-shell && npm run build
 
 console-dev: ## Run console in dev mode (hot reload on :1234)
-	cd $(CONSOLE_DIR)/app-shell && npm run start
+	cd $(CONSOLE_DIR) && npm install --workspaces && cd app-shell && npm run start
 
 docker-console: ## Build console Docker image
 	cd $(CONSOLE_DIR) && docker build -t platform-console:latest .
@@ -86,3 +86,35 @@ lint:
 
 tidy:
 	cd $(PLATFORM_DIR) && go mod tidy
+
+# --- Dev environment ---
+# Zitadel
+# Username: zitadel-admin@zitadel.localhost
+# Password: Password1! 
+# http://localhost:8080/ui/console?login_hint=zitadel-admin@zitadel.localhost 
+
+
+ZITADEL_COMPOSE_DIR := project/zitadel-compose
+
+OIDC_ISSUER_URL ?= http://localhost:8080
+OIDC_CLIENT_ID ?= 366808256712106243
+CONSOLE_ADDR ?= localhost:1234
+
+zitadel-up: ## Start Zitadel via docker-compose
+	cd $(ZITADEL_COMPOSE_DIR) && docker compose up -d --wait
+
+zitadel-down: ## Stop Zitadel
+	cd $(ZITADEL_COMPOSE_DIR) && docker compose down
+
+run-dev: build-platform zitadel-up ## Run platform with embedded kcp, console proxy, and Zitadel OIDC
+	./$(BINARY_DIR)/platform start \
+		--embedded-kcp \
+		--dev-mode \
+		--console-addr $(CONSOLE_ADDR) \
+		--oidc-issuer-url $(OIDC_ISSUER_URL) \
+		$(if $(OIDC_CLIENT_ID),--oidc-client-id $(OIDC_CLIENT_ID),)
+
+dev-login: build-cli ## Login to local dev platform via OIDC
+	./$(BINARY_DIR)/platform-cli login \
+		--hub-url https://localhost:9443 \
+		--insecure-skip-tls-verify
