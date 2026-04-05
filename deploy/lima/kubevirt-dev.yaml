@@ -1,0 +1,111 @@
+# Lima VM config: x86_64 Ubuntu with k3s + KubeVirt 1.8.1
+#
+# Usage:
+#   make lima-up
+#   make lima-status
+#   make lima-kubeconfig
+
+arch: x86_64
+vmType: qemu
+
+images:
+  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
+    arch: x86_64
+
+cpus: 4
+memory: 8GiB
+disk: 50GiB
+
+# Forward k3s API to host (6443 is often taken by other services)
+portForwards:
+  - guestPort: 6443
+    hostIP: "127.0.0.1"
+    hostPort: 16443
+
+# Mount project directory read-only for convenience
+mounts: []
+
+# Use cloud-init for provisioning
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+
+      # Install packages
+      apt-get update
+      apt-get install -y curl socat jq
+
+      # Install k3s
+      curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable=traefik --write-kubeconfig-mode=644 --tls-san=0.0.0.0 --tls-san=127.0.0.1" sh -
+
+      # Wait for k3s
+      echo "Waiting for k3s..."
+      for i in $(seq 1 60); do
+        if /usr/local/bin/kubectl get nodes 2>/dev/null | grep -q " Ready"; then
+          echo "k3s is Ready"
+          break
+        fi
+        sleep 5
+      done
+
+      # Generate external kubeconfig
+      cp /etc/rancher/k3s/k3s.yaml /root/kubeconfig-external
+      sed -i "s|127.0.0.1:6443|127.0.0.1:16443|g" /root/kubeconfig-external
+      chmod 644 /root/kubeconfig-external
+
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+
+      KUBEVIRT_VERSION=v1.8.1
+      KUBECTL=/usr/local/bin/kubectl
+
+      echo "Installing KubeVirt ${KUBEVIRT_VERSION} operator..."
+      $KUBECTL create namespace kubevirt --dry-run=client -o yaml | $KUBECTL apply -f -
+      $KUBECTL apply -f "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml"
+
+      echo "Waiting for virt-operator..."
+      $KUBECTL -n kubevirt rollout status deployment/virt-operator --timeout=900s
+
+      echo "Applying KubeVirt CR (software emulation)..."
+      cat <<'EOF' | $KUBECTL apply -f -
+      apiVersion: kubevirt.io/v1
+      kind: KubeVirt
+      metadata:
+        name: kubevirt
+        namespace: kubevirt
+      spec:
+        configuration:
+          developerConfiguration:
+            useEmulation: true
+            featureGates:
+              - GPU
+              - HostDevices
+          permittedHostDevices:
+            pciHostDevices:
+              - pciVendorSelector: "10DE:"
+                resourceName: nvidia.com/gpu-passthrough
+                externalResourceProvider: false
+        workloadUpdateStrategy:
+          workloadUpdateMethods:
+            - LiveMigrate
+      EOF
+
+      echo "Waiting for KubeVirt to become ready..."
+      $KUBECTL -n kubevirt wait --for=condition=Available kubevirt/kubevirt --timeout=900s
+      echo "KubeVirt is ready."
+
+      # Install virtctl
+      curl -L -o /usr/local/bin/virtctl \
+        "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/virtctl-${KUBEVIRT_VERSION}-linux-amd64"
+      chmod +x /usr/local/bin/virtctl
+
+      # Refresh kubeconfig
+      cp /etc/rancher/k3s/k3s.yaml /root/kubeconfig-external
+      sed -i "s|127.0.0.1:6443|127.0.0.1:16443|g" /root/kubeconfig-external
+      chmod 644 /root/kubeconfig-external
+
+      touch /root/.kubevirt-ready
+      echo "Setup complete."

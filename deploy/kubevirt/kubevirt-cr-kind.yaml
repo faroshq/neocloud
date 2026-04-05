@@ -1,0 +1,36 @@
+# KubeVirt Custom Resource for Kind clusters (software emulation).
+#
+# Kind nodes do not expose /dev/kvm, so KubeVirt must use QEMU software
+# emulation. VMs run ~10x slower than with hardware virtualization but
+# are fully functional for development and demos.
+#
+# IMPORTANT: Software emulation only works on x86_64 (amd64).
+# On Apple Silicon (aarch64), KubeVirt requires 'host-passthrough'
+# CPU mode which needs KVM — not available in Kind on macOS.
+# Use a remote x86_64 machine or Docker Desktop with Rosetta for x86 Kind nodes.
+#
+# For production (bare metal with KVM), use kubevirt-cr.yaml instead.
+---
+apiVersion: kubevirt.io/v1
+kind: KubeVirt
+metadata:
+  name: kubevirt
+  namespace: kubevirt
+spec:
+  configuration:
+    developerConfiguration:
+      # Software emulation — required for Kind / environments without /dev/kvm.
+      useEmulation: true
+      featureGates:
+        - GPU
+        - HostDevices
+
+    permittedHostDevices:
+      pciHostDevices:
+        - pciVendorSelector: "10DE:"
+          resourceName: nvidia.com/gpu-passthrough
+          externalResourceProvider: false
+
+  workloadUpdateStrategy:
+    workloadUpdateMethods:
+      - LiveMigrate

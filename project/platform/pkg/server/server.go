@@ -29,6 +29,7 @@ import (
 	oidc "github.com/coreos/go-oidc"
 	"github.com/gorilla/mux"
 	"github.com/kcp-dev/multicluster-provider/apiexport"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
@@ -236,6 +237,22 @@ func (s *Server) Run(ctx context.Context) error {
 		logger.Info("NeoCloud console proxy enabled", "target", consoleTarget.String())
 	}
 
+	// Build workload cluster client (for KubeVirt operations).
+	var workloadClient *dynamic.DynamicClient
+	if s.opts.WorkloadKubeconfig != "" {
+		workloadConfig, err := clientcmd.BuildConfigFromFlags("", s.opts.WorkloadKubeconfig)
+		if err != nil {
+			return fmt.Errorf("building workload cluster rest config: %w", err)
+		}
+		workloadClient, err = dynamic.NewForConfig(workloadConfig)
+		if err != nil {
+			return fmt.Errorf("creating workload cluster dynamic client: %w", err)
+		}
+		logger.Info("Workload cluster client configured", "kubeconfig", s.opts.WorkloadKubeconfig)
+	} else {
+		logger.Info("No workload kubeconfig provided, VM reconciler will run in mock mode")
+	}
+
 	// Start multicluster controllers (when kcp is configured).
 	if kcpConfig != nil {
 		ctrl.SetLogger(klog.NewKlogr())
@@ -258,7 +275,7 @@ func (s *Server) Run(ctx context.Context) error {
 			return fmt.Errorf("creating multicluster manager: %w", err)
 		}
 
-		if err := compute.SetupWithManager(mgr); err != nil {
+		if err := compute.SetupWithManager(mgr, workloadClient); err != nil {
 			return fmt.Errorf("setting up compute controller: %w", err)
 		}
 

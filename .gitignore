@@ -1,3 +1,4 @@
 project/zitadel
 .platform-data
 bin/
+.claude/settings.json
