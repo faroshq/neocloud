@@ -38,8 +38,10 @@ import (
 	"time"
 
 	oidc "github.com/coreos/go-oidc"
+	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 	"golang.org/x/oauth2"
+	"golang.org/x/term"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/klog/v2"
@@ -56,6 +58,8 @@ func main() {
 
 	cmd.AddCommand(newLoginCommand())
 	cmd.AddCommand(newGetTokenCommand())
+	cmd.AddCommand(newSSHCommand())
+	cmd.AddCommand(newSSHProxyCommand())
 
 	goFlags := flag.NewFlagSet("", flag.ContinueOnError)
 	klog.InitFlags(goFlags)
@@ -526,4 +530,249 @@ func mergeKubeconfig(kubeconfigBytes []byte) error {
 	}
 
 	return nil
+}
+
+// =============================================================================
+// ssh command (interactive SSH via WebSocket tunnel)
+// =============================================================================
+
+func newSSHCommand() *cobra.Command {
+	var (
+		hubURL                string
+		insecureSkipTLSVerify bool
+		token                 string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "ssh <vm-name>",
+		Short: "SSH into a virtual machine via the platform proxy",
+		Long: `Opens an interactive SSH session to a VM through the platform's
+WebSocket SSH proxy. Authenticates using a cached OIDC token
+(from 'platform-cli login') or a static bearer token.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			vmName := args[0]
+			bearerToken, err := resolveToken(cmd.Context(), token, insecureSkipTLSVerify)
+			if err != nil {
+				return err
+			}
+			hubURL, err = resolveHubURL(hubURL)
+			if err != nil {
+				return err
+			}
+			return runSSH(cmd.Context(), hubURL, vmName, bearerToken, insecureSkipTLSVerify, true)
+		},
+	}
+
+	cmd.Flags().StringVar(&hubURL, "hub-url", "", "Platform hub server URL (defaults to kubeconfig 'platform' context)")
+	cmd.Flags().BoolVar(&insecureSkipTLSVerify, "insecure-skip-tls-verify", false, "Skip TLS certificate verification")
+	cmd.Flags().StringVar(&token, "token", "", "Bearer token (defaults to cached OIDC token)")
+
+	return cmd
+}
+
+// =============================================================================
+// ssh-proxy command (ProxyCommand mode for OpenSSH)
+// =============================================================================
+
+func newSSHProxyCommand() *cobra.Command {
+	var (
+		hubURL                string
+		insecureSkipTLSVerify bool
+		token                 string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "ssh-proxy <vm-name>",
+		Short: "SSH ProxyCommand for use with OpenSSH",
+		Long: `Bridges stdin/stdout to the platform's WebSocket SSH proxy.
+Use as an OpenSSH ProxyCommand:
+
+  ssh -o 'ProxyCommand=platform-cli ssh-proxy %h' user@my-vm`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			vmName := args[0]
+			bearerToken, err := resolveToken(cmd.Context(), token, insecureSkipTLSVerify)
+			if err != nil {
+				return err
+			}
+			hubURL, err = resolveHubURL(hubURL)
+			if err != nil {
+				return err
+			}
+			return runSSH(cmd.Context(), hubURL, vmName, bearerToken, insecureSkipTLSVerify, false)
+		},
+	}
+
+	cmd.Flags().StringVar(&hubURL, "hub-url", "", "Platform hub server URL (defaults to kubeconfig 'platform' context)")
+	cmd.Flags().BoolVar(&insecureSkipTLSVerify, "insecure-skip-tls-verify", false, "Skip TLS certificate verification")
+	cmd.Flags().StringVar(&token, "token", "", "Bearer token (defaults to cached OIDC token)")
+
+	return cmd
+}
+
+// resolveToken returns the bearer token to use: explicit flag, or cached OIDC token,
+// or the static token from kubeconfig.
+func resolveToken(ctx context.Context, explicit string, insecure bool) (string, error) {
+	if explicit != "" {
+		return explicit, nil
+	}
+
+	// Try to load from kubeconfig's platform context exec credential.
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	cfg, err := loadingRules.GetStartingConfig()
+	if err == nil {
+		if ctxCfg, ok := cfg.Contexts["platform"]; ok {
+			if authInfo, ok := cfg.AuthInfos[ctxCfg.AuthInfo]; ok {
+				// If exec-based (OIDC), run get-token logic.
+				if authInfo.Exec != nil {
+					for i, arg := range authInfo.Exec.Args {
+						if strings.HasPrefix(arg, "--oidc-issuer-url=") {
+							issuerURL := strings.TrimPrefix(arg, "--oidc-issuer-url=")
+							var clientID string
+							for _, a := range authInfo.Exec.Args[i:] {
+								if strings.HasPrefix(a, "--oidc-client-id=") {
+									clientID = strings.TrimPrefix(a, "--oidc-client-id=")
+									break
+								}
+							}
+							if clientID != "" {
+								tc, err := loadTokenCache(issuerURL, clientID)
+								if err == nil {
+									if tc.isExpired() && tc.RefreshToken != "" {
+										_ = refreshToken(ctx, tc, insecure)
+										_ = saveTokenCache(tc)
+									}
+									if !tc.isExpired() {
+										return tc.IDToken, nil
+									}
+								}
+							}
+							break
+						}
+					}
+				}
+				// If token-based auth.
+				if authInfo.Token != "" {
+					return authInfo.Token, nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no token available — run 'platform-cli login' first or pass --token")
+}
+
+// resolveHubURL returns the hub URL: explicit flag, or from kubeconfig's platform context.
+func resolveHubURL(explicit string) (string, error) {
+	if explicit != "" {
+		return strings.TrimRight(explicit, "/"), nil
+	}
+
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	cfg, err := loadingRules.GetStartingConfig()
+	if err == nil {
+		if ctxCfg, ok := cfg.Contexts["platform"]; ok {
+			if cluster, ok := cfg.Clusters[ctxCfg.Cluster]; ok {
+				// Strip /clusters/... path to get the base hub URL.
+				serverURL := cluster.Server
+				if idx := strings.Index(serverURL, "/clusters/"); idx != -1 {
+					serverURL = serverURL[:idx]
+				}
+				return strings.TrimRight(serverURL, "/"), nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("--hub-url is required (no 'platform' context found in kubeconfig)")
+}
+
+// runSSH connects to the platform SSH proxy via WebSocket and bridges it
+// to the terminal (interactive mode) or stdin/stdout (proxy mode).
+func runSSH(ctx context.Context, hubURL, vmName, token string, insecure, interactive bool) error {
+	// Build WebSocket URL.
+	wsURL := strings.Replace(hubURL, "https://", "wss://", 1)
+	wsURL = strings.Replace(wsURL, "http://", "ws://", 1)
+	wsURL = fmt.Sprintf("%s/ssh/%s", wsURL, vmName)
+
+	dialer := &websocket.Dialer{}
+	if insecure {
+		dialer.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
+	}
+
+	headers := http.Header{}
+	headers.Set("Authorization", "Bearer "+token)
+
+	conn, resp, err := dialer.DialContext(ctx, wsURL, headers)
+	if err != nil {
+		if resp != nil {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			return fmt.Errorf("SSH proxy connection failed (status %d): %s", resp.StatusCode, string(body))
+		}
+		return fmt.Errorf("SSH proxy connection failed: %w", err)
+	}
+	defer conn.Close()
+
+	if interactive {
+		// Put terminal in raw mode for interactive SSH.
+		oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+		if err != nil {
+			return fmt.Errorf("setting terminal to raw mode: %w", err)
+		}
+		defer func() {
+			_ = term.Restore(int(os.Stdin.Fd()), oldState)
+			fmt.Println() // Newline after raw mode exit.
+		}()
+	}
+
+	errCh := make(chan error, 2)
+
+	// stdin → WebSocket.
+	go func() {
+		buf := make([]byte, 32*1024)
+		for {
+			n, err := os.Stdin.Read(buf)
+			if n > 0 {
+				if werr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
+					errCh <- werr
+					return
+				}
+			}
+			if err != nil {
+				errCh <- err
+				return
+			}
+		}
+	}()
+
+	// WebSocket → stdout.
+	go func() {
+		for {
+			_, data, err := conn.ReadMessage()
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if _, err := os.Stdout.Write(data); err != nil {
+				errCh <- err
+				return
+			}
+		}
+	}()
+
+	// Wait for either direction to finish.
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-errCh:
+		// EOF from stdin or WebSocket close are normal termination.
+		if err == io.EOF {
+			return nil
+		}
+		if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+			return nil
+		}
+		return err
+	}
 }

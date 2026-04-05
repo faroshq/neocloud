@@ -42,6 +42,7 @@ import (
 	compute "github.com/faroshq/kcp-ref-arch/project/platform/pkg/controllers/compute/virtualmachines"
 	kcputil "github.com/faroshq/kcp-ref-arch/project/platform/pkg/kcp"
 	"github.com/faroshq/kcp-ref-arch/project/platform/pkg/proxy"
+	sshproxy "github.com/faroshq/kcp-ref-arch/project/platform/pkg/ssh"
 
 	mcmanager "sigs.k8s.io/multicluster-runtime/pkg/manager"
 )
@@ -239,8 +240,10 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// Build workload cluster client (for KubeVirt operations).
 	var workloadClient *dynamic.DynamicClient
+	var workloadConfig *rest.Config
 	if s.opts.WorkloadKubeconfig != "" {
-		workloadConfig, err := clientcmd.BuildConfigFromFlags("", s.opts.WorkloadKubeconfig)
+		var err error
+		workloadConfig, err = clientcmd.BuildConfigFromFlags("", s.opts.WorkloadKubeconfig)
 		if err != nil {
 			return fmt.Errorf("building workload cluster rest config: %w", err)
 		}
@@ -251,6 +254,13 @@ func (s *Server) Run(ctx context.Context) error {
 		logger.Info("Workload cluster client configured", "kubeconfig", s.opts.WorkloadKubeconfig)
 	} else {
 		logger.Info("No workload kubeconfig provided, VM reconciler will run in mock mode")
+	}
+
+	// SSH proxy: WebSocket-based SSH tunneling to KubeVirt VMs.
+	if kcpConfig != nil && workloadConfig != nil {
+		sshHandler := sshproxy.NewHandler(kcpConfig, workloadConfig, oidcVerifierFrom(authHandler), s.opts.StaticAuthTokens, s.opts.DevMode)
+		router.Handle("/ssh/{vm-name}", sshHandler)
+		logger.Info("SSH proxy endpoint registered at /ssh/{vm-name}")
 	}
 
 	// Start multicluster controllers (when kcp is configured).

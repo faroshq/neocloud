@@ -275,6 +275,9 @@ func (r *Reconciler) handleProvisioning(ctx context.Context, c client.Client, vm
 	vm.Status.Phase = computev1alpha1.VirtualMachineRunning
 	vm.Status.Message = "VirtualMachine is running"
 	vm.Status.InternalIP = internalIP
+	if internalIP != "" {
+		vm.Status.SSHEndpoint = fmt.Sprintf("%s:22", internalIP)
+	}
 
 	setCondition(&vm.Status.Conditions, metav1.Condition{
 		Type:               commonv1alpha1.ConditionAvailable,
