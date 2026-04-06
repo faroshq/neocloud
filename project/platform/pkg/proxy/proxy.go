@@ -44,7 +44,6 @@ import (
 // tokens and forwards them to kcp.
 type KCPProxy struct {
 	kcpTarget        *url.URL
-	transport        http.RoundTripper // admin credentials transport
 	passTransport    http.RoundTripper // TLS-only, no credentials
 	verifier         *oidc.IDTokenVerifier
 	verifyCtx        context.Context
@@ -67,10 +66,6 @@ func New(kcpConfig *rest.Config, verifier *oidc.IDTokenVerifier, staticAuthToken
 		if len(transportConfig.CAData) == 0 && transportConfig.CAFile == "" {
 			transportConfig.Insecure = true
 		}
-	}
-	transport, err := rest.TransportFor(transportConfig)
-	if err != nil {
-		return nil, fmt.Errorf("building kcp transport: %w", err)
 	}
 
 	// Passthrough transport: TLS only, no admin credentials.
@@ -100,7 +95,6 @@ func New(kcpConfig *rest.Config, verifier *oidc.IDTokenVerifier, staticAuthToken
 
 	return &KCPProxy{
 		kcpTarget:        target,
-		transport:        transport,
 		passTransport:    passTransport,
 		verifier:         verifier,
 		verifyCtx:        verifyCtx,
@@ -113,6 +107,7 @@ func New(kcpConfig *rest.Config, verifier *oidc.IDTokenVerifier, staticAuthToken
 
 // ServeHTTP validates the bearer token and proxies the request to kcp.
 // Authentication is attempted in order: static tokens, OIDC ID tokens.
+// Both are passed directly to kcp which authenticates them natively.
 func (p *KCPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	token := extractToken(r)
 	if token == "" {
@@ -123,16 +118,16 @@ func (p *KCPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 1. Check static tokens.
 	for _, staticToken := range p.staticAuthTokens {
 		if staticToken != "" && subtle.ConstantTimeCompare([]byte(token), []byte(staticToken)) == 1 {
-			p.serveStaticToken(w, r, token)
+			p.serveToken(w, r, token)
 			return
 		}
 	}
 
-	// 2. Try OIDC verification.
+	// 2. Try OIDC verification (fast local check before forwarding to kcp).
 	if p.verifier != nil {
-		idToken, err := p.verifier.Verify(p.verifyCtx, token)
+		_, err := p.verifier.Verify(p.verifyCtx, token)
 		if err == nil {
-			p.serveOIDC(w, r, idToken)
+			p.serveToken(w, r, token)
 			return
 		}
 	}
@@ -140,44 +135,9 @@ func (p *KCPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	writeUnauthorized(w)
 }
 
-// serveOIDC handles OIDC-authenticated requests by proxying to kcp with
-// admin credentials. The OIDC user identity is passed via Impersonate-User
-// header so kcp applies RBAC for the actual user.
-func (p *KCPProxy) serveOIDC(w http.ResponseWriter, r *http.Request, idToken *oidc.IDToken) {
-	var claims struct {
-		Email             string   `json:"email"`
-		PreferredUsername string   `json:"preferred_username"`
-		Name              string   `json:"name"`
-		Sub               string   `json:"sub"`
-		Groups            []string `json:"groups"`
-	}
-	if err := idToken.Claims(&claims); err != nil {
-		p.logger.Error(err, "failed to parse ID token claims")
-		writeError(w, http.StatusInternalServerError, "failed to parse token claims")
-		return
-	}
-
-	// Determine the best username from available claims.
-	username := claims.Email
-	if username == "" {
-		username = claims.PreferredUsername
-	}
-	if username == "" {
-		username = claims.Name
-	}
-	if username == "" {
-		username = claims.Sub
-	}
-	if username == "" {
-		p.logger.Error(nil, "no usable identity claim in token")
-		writeError(w, http.StatusUnauthorized, "no usable identity in token")
-		return
-	}
-
-	// kcp OIDC username prefix is "oidc:" (configured in RootShard).
-	// We impersonate as the OIDC user so kcp applies their RBAC rules.
-	oidcUser := "oidc:" + username
-
+// serveToken proxies the request to kcp with the given bearer token.
+// kcp authenticates the token natively (static token file or OIDC).
+func (p *KCPProxy) serveToken(w http.ResponseWriter, r *http.Request, token string) {
 	target := *p.kcpTarget
 	logger := p.logger
 
@@ -188,41 +148,6 @@ func (p *KCPProxy) serveOIDC(w http.ResponseWriter, r *http.Request, idToken *oi
 			req.Host = target.Host
 
 			// Scope bare /api paths to /clusters/root.
-			if !strings.HasPrefix(req.URL.Path, "/clusters/") {
-				req.URL.Path = "/clusters/root" + req.URL.Path
-			}
-
-			// Remove user's token, use admin transport credentials.
-			req.Header.Del("Authorization")
-
-			// Impersonate the OIDC user so kcp enforces their RBAC.
-			req.Header.Set("Impersonate-User", oidcUser)
-			req.Header.Del("Impersonate-Group")
-			for _, group := range claims.Groups {
-				req.Header.Add("Impersonate-Group", "oidc:"+group)
-			}
-		},
-		Transport: p.transport,
-		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			logger.Error(err, "proxy upstream error (OIDC)", "method", r.Method, "path", r.URL.Path)
-			writeError(w, http.StatusBadGateway, "upstream error")
-		},
-	}
-
-	proxy.ServeHTTP(w, r)
-}
-
-// serveStaticToken proxies the request to kcp with the caller's static token.
-func (p *KCPProxy) serveStaticToken(w http.ResponseWriter, r *http.Request, token string) {
-	target := *p.kcpTarget
-	logger := p.logger
-
-	proxy := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
-			req.URL.Scheme = target.Scheme
-			req.URL.Host = target.Host
-			req.Host = target.Host
-
 			if !strings.HasPrefix(req.URL.Path, "/clusters/") {
 				req.URL.Path = "/clusters/root" + req.URL.Path
 			}

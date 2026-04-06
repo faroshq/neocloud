@@ -1,0 +1,90 @@
+apiVersion: apis.kcp.io/v1alpha1
+kind: APIResourceSchema
+metadata:
+  name: v260406-6a0f2ed.publicimages.compute.cloud.platform
+spec:
+  group: compute.cloud.platform
+  names:
+    kind: PublicImage
+    listKind: PublicImageList
+    plural: publicimages
+    shortNames:
+    - pimg
+    singular: publicimage
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.image
+      name: Image
+      type: string
+    - jsonPath: .spec.displayName
+      name: Display Name
+      type: string
+    - jsonPath: .spec.os
+      name: OS
+      type: string
+    - jsonPath: .spec.category
+      name: Category
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      description: |-
+        PublicImage is a catalog entry for a container disk image available
+        for use as a VM boot disk. These are distributed to all bound workspaces
+        via the cloud.platform APIExport as cached resources.
+      properties:
+        apiVersion:
+          description: |-
+            APIVersion defines the versioned schema of this representation of an object.
+            Servers should convert recognized schemas to the latest internal value, and
+            may reject unrecognized values.
+            More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+          type: string
+        kind:
+          description: |-
+            Kind is a string value representing the REST resource this object represents.
+            Servers may infer this from the endpoint the client submits requests to.
+            Cannot be updated.
+            In CamelCase.
+            More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+          type: string
+        metadata:
+          type: object
+        spec:
+          description: PublicImageSpec defines the desired state of PublicImage.
+          properties:
+            category:
+              description: Category groups images for display (e.g. "ubuntu", "fedora",
+                "centos").
+              type: string
+            description:
+              description: Short description of the image.
+              type: string
+            displayName:
+              description: Human-readable display name for the image.
+              type: string
+            image:
+              description: Container disk image reference (e.g. "quay.io/containerdisks/ubuntu:22.04").
+              type: string
+            os:
+              default: linux
+              description: Operating system family (e.g. "linux", "windows").
+              type: string
+            tags:
+              description: Tags for filtering and search.
+              items:
+                type: string
+              type: array
+          required:
+          - displayName
+          - image
+          type: object
+      required:
+      - spec
+      type: object
+    served: true
+    storage: true
+    subresources: {}

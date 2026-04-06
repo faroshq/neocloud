@@ -48,6 +48,15 @@ type EmbeddedKCPOptions struct {
 	// StaticAuthTokens are bearer tokens that kcp should accept directly
 	// via its token-auth-file mechanism.
 	StaticAuthTokens []string
+
+	// OIDC options for native kcp authentication.
+	OIDCIssuerURL      string
+	OIDCClientID       string
+	OIDCCAFile         string
+	OIDCUsernameClaim  string
+	OIDCUsernamePrefix string
+	OIDCGroupsClaim    string
+	OIDCGroupsPrefix   string
 }
 
 // EmbeddedKCP wraps a kcp server that runs in-process.
@@ -81,9 +90,10 @@ func (e *EmbeddedKCP) Run(ctx context.Context) error {
 	logger := klog.FromContext(ctx)
 	logger.Info("Starting embedded kcp server", "rootDir", e.opts.RootDir, "securePort", e.opts.SecurePort)
 
-	// Enable WorkspaceMounts feature gate.
-	if err := utilfeature.DefaultMutableFeatureGate.Set(fmt.Sprintf("%s=true", kcpfeatures.WorkspaceMounts)); err != nil {
-		return fmt.Errorf("enabling WorkspaceMounts feature gate: %w", err)
+	// Enable feature gates.
+	featureGates := fmt.Sprintf("%s=true,%s=true", kcpfeatures.WorkspaceMounts, kcpfeatures.CacheAPIs)
+	if err := utilfeature.DefaultMutableFeatureGate.Set(featureGates); err != nil {
+		return fmt.Errorf("enabling feature gates: %w", err)
 	}
 
 	kcpOpts := serveroptions.NewOptions(e.opts.RootDir)
@@ -115,6 +125,36 @@ func (e *EmbeddedKCP) Run(ctx context.Context) error {
 			kcpOpts.GenericControlPlane.Authentication.TokenFile.TokenFile = tokenFilePath
 			logger.Info("Static token auth file configured for kcp", "path", tokenFilePath, "tokens", len(lines))
 		}
+	}
+
+	// Configure OIDC authentication if provided.
+	if e.opts.OIDCIssuerURL != "" && e.opts.OIDCClientID != "" {
+		kcpOpts.GenericControlPlane.Authentication.OIDC.IssuerURL = e.opts.OIDCIssuerURL
+		kcpOpts.GenericControlPlane.Authentication.OIDC.ClientID = e.opts.OIDCClientID
+		if e.opts.OIDCUsernameClaim != "" {
+			kcpOpts.GenericControlPlane.Authentication.OIDC.UsernameClaim = e.opts.OIDCUsernameClaim
+		} else {
+			kcpOpts.GenericControlPlane.Authentication.OIDC.UsernameClaim = "email"
+		}
+		if e.opts.OIDCUsernamePrefix != "" {
+			kcpOpts.GenericControlPlane.Authentication.OIDC.UsernamePrefix = e.opts.OIDCUsernamePrefix
+		} else {
+			kcpOpts.GenericControlPlane.Authentication.OIDC.UsernamePrefix = "oidc:"
+		}
+		if e.opts.OIDCGroupsClaim != "" {
+			kcpOpts.GenericControlPlane.Authentication.OIDC.GroupsClaim = e.opts.OIDCGroupsClaim
+		} else {
+			kcpOpts.GenericControlPlane.Authentication.OIDC.GroupsClaim = "groups"
+		}
+		if e.opts.OIDCGroupsPrefix != "" {
+			kcpOpts.GenericControlPlane.Authentication.OIDC.GroupsPrefix = e.opts.OIDCGroupsPrefix
+		} else {
+			kcpOpts.GenericControlPlane.Authentication.OIDC.GroupsPrefix = "oidc:"
+		}
+		if e.opts.OIDCCAFile != "" {
+			kcpOpts.GenericControlPlane.Authentication.OIDC.CAFile = e.opts.OIDCCAFile
+		}
+		logger.Info("OIDC authentication configured for kcp", "issuer", e.opts.OIDCIssuerURL, "clientID", e.opts.OIDCClientID)
 	}
 
 	kcpOpts.Extra.BatteriesIncluded = e.opts.BatteriesInclude

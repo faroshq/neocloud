@@ -74,6 +74,7 @@ func main() {
 	// OIDC flags
 	startCmd.Flags().StringVar(&opts.OIDCIssuerURL, "oidc-issuer-url", "", "OIDC provider issuer URL (e.g. Zitadel). Enables OIDC authentication for the console and API proxy")
 	startCmd.Flags().StringVar(&opts.OIDCClientID, "oidc-client-id", "", "OIDC client ID (public client, no secret needed with PKCE)")
+	startCmd.Flags().StringVar(&opts.OIDCCAFile, "oidc-ca-file", "", "CA certificate file for OIDC issuer (for self-signed certs)")
 
 	// Embedded kcp flags
 	startCmd.Flags().BoolVar(&opts.EmbeddedKCP, "embedded-kcp", opts.EmbeddedKCP, "Enable embedded kcp server (runs kcp in-process)")

@@ -92,6 +92,9 @@ func (s *Server) Run(ctx context.Context) error {
 			BindAddress:      s.opts.KCPBindAddress,
 			BatteriesInclude: batteries,
 			StaticAuthTokens: s.opts.StaticAuthTokens,
+			OIDCIssuerURL:    s.opts.OIDCIssuerURL,
+			OIDCClientID:     s.opts.OIDCClientID,
+			OIDCCAFile:       s.opts.OIDCCAFile,
 		})
 
 		go func() {

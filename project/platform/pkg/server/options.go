@@ -37,6 +37,7 @@ type Options struct {
 	// OIDC options
 	OIDCIssuerURL string // OIDC provider issuer URL (e.g. Zitadel)
 	OIDCClientID  string // OIDC client ID (public client, no secret)
+	OIDCCAFile    string // CA file for OIDC issuer (self-signed certs)
 
 	// Embedded kcp options
 	EmbeddedKCP         bool

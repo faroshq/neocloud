@@ -34,6 +34,8 @@ import (
 	"k8s.io/klog/v2"
 
 	kcpconfig "github.com/faroshq/kcp-ref-arch/project/platform/config/kcp"
+	publicimagesconfig "github.com/faroshq/kcp-ref-arch/project/platform/config/publicimages"
+	"github.com/faroshq/kcp-ref-arch/project/platform/pkg/bootstrap"
 	"github.com/faroshq/kcp-ref-arch/project/platform/pkg/kcp/confighelpers"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -142,7 +144,24 @@ func (b *Bootstrapper) Bootstrap(ctx context.Context) error {
 		return fmt.Errorf("creating APIBinding for cloud.platform: %w", err)
 	}
 
-	// 7. Create ClusterRoleBindings for static token users in root workspace.
+	// 7. Install CRDs in root:platform:providers so PublicImage CRs can be stored there.
+	logger.Info("Installing CRDs in providers workspace")
+	if err := bootstrap.InstallCRDs(ctx, providersConfig); err != nil {
+		return fmt.Errorf("installing CRDs in providers: %w", err)
+	}
+
+	// 8. Bootstrap CachedResource and PublicImage CRs in root:platform:providers.
+	// The CachedResource tells kcp to replicate PublicImages to all bound workspaces.
+	logger.Info("Bootstrapping CachedResource in providers workspace")
+	if err := confighelpers.Bootstrap(ctx, providersDiscovery, providersDynamic, publicimagesconfig.CachedResourceFS); err != nil {
+		return fmt.Errorf("bootstrapping cached resource: %w", err)
+	}
+	logger.Info("Bootstrapping PublicImage resources in providers workspace")
+	if err := confighelpers.Bootstrap(ctx, providersDiscovery, providersDynamic, publicimagesconfig.PublicImagesFS); err != nil {
+		return fmt.Errorf("bootstrapping public images: %w", err)
+	}
+
+	// 9. Create ClusterRoleBindings for static token users in root workspace.
 	if len(b.staticAuthTokens) > 0 {
 		logger.Info("Bootstrapping RBAC for static token users")
 		for _, token := range b.staticAuthTokens {

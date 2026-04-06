@@ -8,6 +8,7 @@ services:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
       - --providers.docker.network=zitadel
+      - --providers.file.filename=/etc/traefik/dynamic/tls.yaml
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
       - --api.dashboard=${TRAEFIK_DASHBOARD_ENABLED}
@@ -18,10 +19,13 @@ services:
       - --accesslog=${TRAEFIK_ACCESSLOG_ENABLED}
     ports:
       - ${PROXY_HTTP_PUBLISHED_PORT}:80
+      - ${PROXY_HTTPS_PUBLISHED_PORT}:443
     networks:
       - zitadel
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./certs:/certs:ro
+      - ./traefik-tls.yaml:/etc/traefik/dynamic/tls.yaml:ro
     depends_on:
       zitadel-api:
         condition: service_healthy

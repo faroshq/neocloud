@@ -1,0 +1,131 @@
+apiVersion: compute.cloud.platform/v1alpha1
+kind: PublicImage
+metadata:
+  name: ubuntu-22.04
+spec:
+  image: quay.io/containerdisks/ubuntu:22.04
+  displayName: Ubuntu 22.04 LTS (Jammy Jellyfish)
+  description: Long-term support release of Ubuntu Linux.
+  os: linux
+  category: ubuntu
+  tags:
+    - lts
+    - ubuntu
+    - debian-based
+---
+apiVersion: compute.cloud.platform/v1alpha1
+kind: PublicImage
+metadata:
+  name: ubuntu-24.04
+spec:
+  image: quay.io/containerdisks/ubuntu:24.04
+  displayName: Ubuntu 24.04 LTS (Noble Numbat)
+  description: Latest long-term support release of Ubuntu Linux.
+  os: linux
+  category: ubuntu
+  tags:
+    - lts
+    - ubuntu
+    - debian-based
+---
+apiVersion: compute.cloud.platform/v1alpha1
+kind: PublicImage
+metadata:
+  name: fedora-40
+spec:
+  image: quay.io/containerdisks/fedora:40
+  displayName: Fedora 40
+  description: Fedora Linux workstation image.
+  os: linux
+  category: fedora
+  tags:
+    - fedora
+    - rpm-based
+---
+apiVersion: compute.cloud.platform/v1alpha1
+kind: PublicImage
+metadata:
+  name: fedora-41
+spec:
+  image: quay.io/containerdisks/fedora:41
+  displayName: Fedora 41
+  description: Latest Fedora Linux workstation image.
+  os: linux
+  category: fedora
+  tags:
+    - fedora
+    - rpm-based
+---
+apiVersion: compute.cloud.platform/v1alpha1
+kind: PublicImage
+metadata:
+  name: centos-stream9
+spec:
+  image: quay.io/containerdisks/centos-stream:9
+  displayName: CentOS Stream 9
+  description: CentOS Stream continuous-delivery distribution.
+  os: linux
+  category: centos
+  tags:
+    - centos
+    - rpm-based
+    - enterprise
+---
+apiVersion: compute.cloud.platform/v1alpha1
+kind: PublicImage
+metadata:
+  name: debian-12
+spec:
+  image: quay.io/containerdisks/debian:12
+  displayName: Debian 12 (Bookworm)
+  description: Stable release of Debian Linux.
+  os: linux
+  category: debian
+  tags:
+    - stable
+    - debian
+    - debian-based
+---
+apiVersion: compute.cloud.platform/v1alpha1
+kind: PublicImage
+metadata:
+  name: debian-13
+spec:
+  image: quay.io/containerdisks/debian:13
+  displayName: Debian 13 (Trixie)
+  description: Testing release of Debian Linux.
+  os: linux
+  category: debian
+  tags:
+    - testing
+    - debian
+    - debian-based
+---
+apiVersion: compute.cloud.platform/v1alpha1
+kind: PublicImage
+metadata:
+  name: alpine-3.20
+spec:
+  image: quay.io/containerdisks/alpine:3.20
+  displayName: Alpine Linux 3.20
+  description: Lightweight Alpine Linux image.
+  os: linux
+  category: alpine
+  tags:
+    - alpine
+    - lightweight
+---
+apiVersion: compute.cloud.platform/v1alpha1
+kind: PublicImage
+metadata:
+  name: flatcar
+spec:
+  image: quay.io/containerdisks/flatcar
+  displayName: Flatcar Container Linux
+  description: Container-optimized Linux distribution.
+  os: linux
+  category: flatcar
+  tags:
+    - flatcar
+    - container-optimized
+    - immutable

@@ -22,10 +22,10 @@ import (
 	"strings"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -60,7 +60,7 @@ var imageMap = map[string]string{
 	"ubuntu-22.04": "ghcr.io/mjudeikis/containerdisks/ubuntu:22.04",
 	"ubuntu-24.04": "ghcr.io/mjudeikis/containerdisks/ubuntu:24.04",
 	"debian-12":    "quay.io/containerdisks/debian:12",
-	"flatcar":      "quay.io/containerdisks/flatcar",
+	"debian-13":    "quay.io/containerdisks/debian:13",
 }
 
 // defaultNamespace is the namespace where KubeVirt VMs are created on the workload cluster.

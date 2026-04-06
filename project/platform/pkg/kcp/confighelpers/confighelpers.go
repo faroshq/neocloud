@@ -87,7 +87,7 @@ func Bootstrap(ctx context.Context, discoveryClient discovery.DiscoveryInterface
 
 	return wait.PollUntilContextCancel(ctx, time.Second, true, func(ctx context.Context) (bool, error) {
 		if err := createResourcesFromFS(ctx, dynamicClient, mapper, embedFS, transformers...); err != nil {
-			klog.FromContext(ctx).V(2).Info("Failed to bootstrap resources, retrying", "err", err)
+			klog.FromContext(ctx).Info("Failed to bootstrap resources, retrying", "err", err)
 			cache.Invalidate()
 			return false, nil
 		}
@@ -195,7 +195,7 @@ func upsertResource(ctx context.Context, client dynamic.Interface, mapper meta.R
 		logger.V(2).Info("Created resource", "kind", gvk.Kind, "name", u.GetName())
 		return nil
 	}
-	if !apierrors.IsAlreadyExists(err) {
+	if !apierrors.IsAlreadyExists(err) && !apierrors.IsForbidden(err) {
 		return err
 	}
 

@@ -521,6 +521,7 @@ func (h *Handler) handleAuthCodeExchange(w http.ResponseWriter, r *http.Request)
 		"token_type":    "Bearer",
 		"expires_in":    pending.expiresAt - time.Now().Unix(),
 		"refresh_token": pending.refreshToken,
+		"cluster_name":  pending.clusterPath,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -91,7 +91,7 @@ tidy:
 # Zitadel
 # Username: zitadel-admin@zitadel.localhost
 # Password: Password1! 
-# http://localhost:8080/ui/console?login_hint=zitadel-admin@zitadel.localhost 
+# https://localhost:10443/ui/console?login_hint=zitadel-admin@zitadel.localhost 
 
 
 ZITADEL_COMPOSE_DIR := project/zitadel-compose
@@ -100,7 +100,7 @@ LIMA_CONFIG := deploy/lima/kubevirt-dev.yaml
 KUBEVIRT_VERSION ?= v1.8.1
 WORKLOAD_KUBECONFIG ?= .platform-data/workload-kubeconfig
 
-OIDC_ISSUER_URL ?= http://localhost:8080
+OIDC_ISSUER_URL ?= https://localhost:10443
 OIDC_CLIENT_ID ?= 366808256712106243
 CONSOLE_ADDR ?= localhost:1234
 
@@ -156,8 +156,21 @@ demo-vm-clean: ## Delete the demo VM
 
 # --- Zitadel ---
 
-zitadel-up: ## Start Zitadel via docker-compose
+zitadel-up: zitadel-certs ## Start Zitadel via docker-compose
 	cd $(ZITADEL_COMPOSE_DIR) && docker compose up -d --wait
+
+zitadel-certs: ## Generate self-signed TLS certs for Zitadel (localhost)
+	@if [ ! -f $(ZITADEL_COMPOSE_DIR)/certs/localhost.crt ]; then \
+		echo "Generating self-signed TLS certificate for localhost..."; \
+		openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+			-keyout $(ZITADEL_COMPOSE_DIR)/certs/localhost.key \
+			-out $(ZITADEL_COMPOSE_DIR)/certs/localhost.crt \
+			-days 3650 -subj "/CN=localhost" \
+			-addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
+			-addext "basicConstraints=critical,CA:TRUE" \
+			-addext "keyUsage=critical,digitalSignature,keyCertSign" \
+			-addext "extendedKeyUsage=serverAuth"; \
+	fi
 
 zitadel-down: ## Stop Zitadel
 	cd $(ZITADEL_COMPOSE_DIR) && docker compose down
@@ -170,6 +183,7 @@ run-dev: build-platform zitadel-up ## Run platform with embedded kcp, console pr
 		--dev-mode \
 		--console-addr $(CONSOLE_ADDR) \
 		--oidc-issuer-url $(OIDC_ISSUER_URL) \
+		--oidc-ca-file $(ZITADEL_COMPOSE_DIR)/certs/localhost.crt \
 		$(if $(OIDC_CLIENT_ID),--oidc-client-id $(OIDC_CLIENT_ID),) \
 		$(if $(wildcard $(WORKLOAD_KUBECONFIG)),--workload-kubeconfig $(WORKLOAD_KUBECONFIG),)
 
