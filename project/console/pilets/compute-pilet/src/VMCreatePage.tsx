@@ -1,23 +1,61 @@
 import * as React from 'react';
 import {
-  Box, Typography, Paper, TextField, Button, MenuItem, Alert,
+  Box, Typography, Paper, TextField, Button, MenuItem, Alert, ListSubheader, Chip,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import { vmApi } from './api';
+import { vmApi, publicImageApi, K8sResource } from './api';
 
-const OS_IMAGES = ['ubuntu-22.04', 'ubuntu-24.04', 'debian-12', 'flatcar'];
+interface OSImage {
+  id: string;
+  displayName: string;
+  category: string;
+  tags: string[];
+}
+
+function toOSImage(r: K8sResource): OSImage {
+  const spec = r.spec || {};
+  return {
+    id: r.metadata.name,
+    displayName: (spec.displayName as string) || r.metadata.name,
+    category: (spec.category as string) || 'other',
+    tags: (spec.tags as string[]) || [],
+  };
+}
+
+function groupByCategory(images: OSImage[]): Map<string, OSImage[]> {
+  const sorted = [...images].sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { numeric: true }));
+  const groups = new Map<string, OSImage[]>();
+  for (const img of sorted) {
+    const cat = img.category || 'other';
+    if (!groups.has(cat)) groups.set(cat, []);
+    groups.get(cat)!.push(img);
+  }
+  return groups;
+}
 
 export const VMCreatePage: React.FC = () => {
   const navigate = useNavigate();
+  const [osImages, setOsImages] = React.useState<OSImage[]>([]);
+  const [loadingImages, setLoadingImages] = React.useState(true);
   const [name, setName] = React.useState('');
   const [cores, setCores] = React.useState(2);
   const [memory, setMemory] = React.useState('4Gi');
   const [diskSize, setDiskSize] = React.useState('50Gi');
-  const [image, setImage] = React.useState(OS_IMAGES[0]);
+  const [image, setImage] = React.useState('');
   const [gpuCount, setGpuCount] = React.useState(0);
   const [sshPublicKey, setSshPublicKey] = React.useState('');
   const [creating, setCreating] = React.useState(false);
   const [error, setError] = React.useState('');
+
+  React.useEffect(() => {
+    publicImageApi.list().then((items) => {
+      const images = items.map(toOSImage);
+      setOsImages(images);
+      if (images.length > 0) setImage(images[0].id);
+    }).catch((e) => {
+      setError(`Failed to load OS images: ${e instanceof Error ? e.message : e}`);
+    }).finally(() => setLoadingImages(false));
+  }, []);
 
   const handleCreate = async () => {
     if (!name) {
@@ -78,10 +116,26 @@ export const VMCreatePage: React.FC = () => {
         <TextField
           label="OS Image" select fullWidth sx={{ mb: 2 }}
           value={image} onChange={(e) => setImage(e.target.value)}
+          disabled={loadingImages}
+          helperText={loadingImages ? 'Loading images...' : undefined}
         >
-          {OS_IMAGES.map((img) => (
-            <MenuItem key={img} value={img}>{img}</MenuItem>
-          ))}
+          {Array.from(groupByCategory(osImages)).map(([category, images]) => [
+            <ListSubheader key={`header-${category}`} sx={{ textTransform: 'uppercase', fontSize: '0.7rem', fontWeight: 700 }}>
+              {category}
+            </ListSubheader>,
+            ...images.map((os) => (
+              <MenuItem key={os.id} value={os.id}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
+                  <span>{os.displayName}</span>
+                  <Box sx={{ display: 'flex', gap: 0.5, ml: 'auto' }}>
+                    {os.tags.map((tag) => (
+                      <Chip key={tag} label={tag} size="small" sx={{ height: 18, fontSize: '0.625rem' }} />
+                    ))}
+                  </Box>
+                </Box>
+              </MenuItem>
+            )),
+          ]).flat()}
         </TextField>
         <TextField
           label="GPU Count" type="number" fullWidth sx={{ mb: 2 }}

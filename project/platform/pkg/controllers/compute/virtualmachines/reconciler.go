@@ -415,7 +415,7 @@ func buildKubeVirtVM(name string, vm *computev1alpha1.VirtualMachine) *unstructu
 	userData := "#cloud-config\nhostname: " + name + "\n"
 	userData += "ssh_pwauth: true\n"
 	userData += "disable_root: false\n"
-	userData += "chpasswd:\n  list: |\n    root:platform\n  expire: false\n"
+	userData += "chpasswd:\n  users:\n    - name: root\n      password: platform\n      type: text\n  expire: false\n"
 	userData += "packages:\n  - openssh-server\n"
 	userData += "runcmd:\n  - systemctl enable ssh || systemctl enable sshd || true\n  - systemctl start ssh || systemctl start sshd || true\n"
 	if vm.Spec.SSH != nil && vm.Spec.SSH.PublicKey != "" {

@@ -6,30 +6,76 @@ import {
   TextField,
   Button,
   Alert,
+  MenuItem,
+  ListSubheader,
+  Chip,
   alpha,
 } from '@mui/material';
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded';
 import { useNavigate } from 'react-router-dom';
-import { vmApi } from './api';
+import { vmApi, publicImageApi, K8sResource } from './api';
 
-const OS_IMAGES = [
-  { id: 'ubuntu-22.04', name: 'Ubuntu', version: '22.04 LTS', color: '#E95420' },
-  { id: 'ubuntu-24.04', name: 'Ubuntu', version: '24.04 LTS', color: '#E95420' },
-  { id: 'debian-12', name: 'Debian', version: '12 Bookworm', color: '#A80030' },
-  { id: 'flatcar', name: 'Flatcar', version: 'Stable', color: '#4A90D9' },
-];
+interface OSImage {
+  id: string;
+  displayName: string;
+  os: string;
+  category: string;
+  tags: string[];
+}
+
+function toOSImage(r: K8sResource): OSImage {
+  const spec = r.spec || {};
+  return {
+    id: r.metadata.name,
+    displayName: (spec.displayName as string) || r.metadata.name,
+    os: (spec.os as string) || '',
+    category: (spec.category as string) || 'other',
+    tags: (spec.tags as string[]) || [],
+  };
+}
+
+function groupByCategory(images: OSImage[]): Map<string, OSImage[]> {
+  const sorted = [...images].sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { numeric: true }));
+  const groups = new Map<string, OSImage[]>();
+  for (const img of sorted) {
+    const cat = img.category || 'other';
+    if (!groups.has(cat)) groups.set(cat, []);
+    groups.get(cat)!.push(img);
+  }
+  return groups;
+}
+
+const TAG_COLORS: Record<string, string> = {
+  lts: '#22c55e',
+  stable: '#22c55e',
+  enterprise: '#6366f1',
+  rolling: '#f59e0b',
+  testing: '#f59e0b',
+};
 
 export const VMCreatePage: React.FC = () => {
   const navigate = useNavigate();
+  const [osImages, setOsImages] = React.useState<OSImage[]>([]);
+  const [loadingImages, setLoadingImages] = React.useState(true);
   const [name, setName] = React.useState('');
   const [cores, setCores] = React.useState(2);
   const [memory, setMemory] = React.useState('4Gi');
   const [diskSize, setDiskSize] = React.useState('50Gi');
-  const [diskImage, setDiskImage] = React.useState(OS_IMAGES[0].id);
+  const [diskImage, setDiskImage] = React.useState('');
   const [gpuCount, setGpuCount] = React.useState(0);
   const [sshPublicKey, setSshPublicKey] = React.useState('');
   const [creating, setCreating] = React.useState(false);
   const [error, setError] = React.useState('');
+
+  React.useEffect(() => {
+    publicImageApi.list().then((items) => {
+      const images = items.map(toOSImage);
+      setOsImages(images);
+      if (images.length > 0) setDiskImage(images[0].id);
+    }).catch((e) => {
+      setError(`Failed to load OS images: ${e instanceof Error ? e.message : e}`);
+    }).finally(() => setLoadingImages(false));
+  }, []);
 
   const handleCreate = async () => {
     if (!name) {
@@ -137,83 +183,59 @@ export const VMCreatePage: React.FC = () => {
               Operating System
             </Typography>
           </Box>
-          <Box
-            sx={{
-              p: 2.5,
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-              gap: 1.5,
-            }}
-          >
-            {OS_IMAGES.map((os) => {
-              const selected = diskImage === os.id;
-              return (
-                <Box
-                  key={os.id}
-                  onClick={() => setDiskImage(os.id)}
+          <Box sx={{ p: 2.5 }}>
+            <TextField
+              label="OS Image"
+              select
+              fullWidth
+              value={diskImage}
+              onChange={(e) => setDiskImage(e.target.value)}
+              disabled={loadingImages}
+              helperText={loadingImages ? 'Loading images...' : undefined}
+            >
+              {Array.from(groupByCategory(osImages)).map(([category, images]) => [
+                <ListSubheader
+                  key={`header-${category}`}
                   sx={{
-                    p: 2,
-                    borderRadius: 2,
-                    border: '1px solid',
-                    borderColor: selected
-                      ? alpha(os.color, 0.5)
-                      : 'rgba(255,255,255,0.08)',
-                    bgcolor: selected
-                      ? alpha(os.color, 0.06)
-                      : 'transparent',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    textAlign: 'center',
-                    '&:hover': {
-                      borderColor: selected
-                        ? alpha(os.color, 0.5)
-                        : 'rgba(255,255,255,0.15)',
-                      bgcolor: selected
-                        ? alpha(os.color, 0.06)
-                        : 'rgba(255,255,255,0.03)',
-                    },
+                    bgcolor: 'rgba(255,255,255,0.03)',
+                    color: '#a1a1aa',
+                    fontSize: '0.6875rem',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    lineHeight: '32px',
                   }}
                 >
-                  <Box
-                    sx={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: '50%',
-                      bgcolor: alpha(os.color, 0.15),
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      mx: 'auto',
-                      mb: 1,
-                    }}
-                  >
-                    <Typography
-                      sx={{
-                        fontSize: '0.75rem',
-                        fontWeight: 700,
-                        color: os.color,
-                      }}
-                    >
-                      {os.name.charAt(0)}
-                    </Typography>
-                  </Box>
-                  <Typography
-                    sx={{
-                      fontSize: '0.8125rem',
-                      fontWeight: 600,
-                      mb: 0.25,
-                    }}
-                  >
-                    {os.name}
-                  </Typography>
-                  <Typography
-                    sx={{ fontSize: '0.6875rem', color: '#71717a' }}
-                  >
-                    {os.version}
-                  </Typography>
-                </Box>
-              );
-            })}
+                  {category}
+                </ListSubheader>,
+                ...images.map((os) => (
+                  <MenuItem key={os.id} value={os.id} sx={{ py: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
+                      <Typography sx={{ fontSize: '0.8125rem' }}>
+                        {os.displayName}
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 0.5, ml: 'auto' }}>
+                        {os.tags.map((tag) => (
+                          <Chip
+                            key={tag}
+                            label={tag}
+                            size="small"
+                            sx={{
+                              height: 18,
+                              fontSize: '0.625rem',
+                              fontWeight: 600,
+                              bgcolor: alpha(TAG_COLORS[tag] || '#71717a', 0.15),
+                              color: TAG_COLORS[tag] || '#a1a1aa',
+                              '& .MuiChip-label': { px: 0.75 },
+                            }}
+                          />
+                        ))}
+                      </Box>
+                    </Box>
+                  </MenuItem>
+                )),
+              ]).flat()}
+            </TextField>
           </Box>
         </Paper>
 

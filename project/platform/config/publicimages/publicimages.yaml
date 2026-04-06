@@ -1,21 +1,6 @@
 apiVersion: compute.cloud.platform/v1alpha1
 kind: PublicImage
 metadata:
-  name: ubuntu-22.04
-spec:
-  image: quay.io/containerdisks/ubuntu:22.04
-  displayName: Ubuntu 22.04 LTS (Jammy Jellyfish)
-  description: Long-term support release of Ubuntu Linux.
-  os: linux
-  category: ubuntu
-  tags:
-    - lts
-    - ubuntu
-    - debian-based
----
-apiVersion: compute.cloud.platform/v1alpha1
-kind: PublicImage
-metadata:
   name: ubuntu-24.04
 spec:
   image: quay.io/containerdisks/ubuntu:24.04
@@ -31,10 +16,39 @@ spec:
 apiVersion: compute.cloud.platform/v1alpha1
 kind: PublicImage
 metadata:
-  name: fedora-40
+  name: ubuntu-22.04
 spec:
-  image: quay.io/containerdisks/fedora:40
-  displayName: Fedora 40
+  image: quay.io/containerdisks/ubuntu:22.04
+  displayName: Ubuntu 22.04 LTS (Jammy Jellyfish)
+  description: Long-term support release of Ubuntu Linux.
+  os: linux
+  category: ubuntu
+  tags:
+    - lts
+    - ubuntu
+    - debian-based
+---
+apiVersion: compute.cloud.platform/v1alpha1
+kind: PublicImage
+metadata:
+  name: fedora-43
+spec:
+  image: quay.io/containerdisks/fedora:43
+  displayName: Fedora 43
+  description: Latest Fedora Linux workstation image.
+  os: linux
+  category: fedora
+  tags:
+    - fedora
+    - rpm-based
+---
+apiVersion: compute.cloud.platform/v1alpha1
+kind: PublicImage
+metadata:
+  name: fedora-42
+spec:
+  image: quay.io/containerdisks/fedora:42
+  displayName: Fedora 42
   description: Fedora Linux workstation image.
   os: linux
   category: fedora
@@ -45,16 +59,17 @@ spec:
 apiVersion: compute.cloud.platform/v1alpha1
 kind: PublicImage
 metadata:
-  name: fedora-41
+  name: centos-stream10
 spec:
-  image: quay.io/containerdisks/fedora:41
-  displayName: Fedora 41
-  description: Latest Fedora Linux workstation image.
+  image: quay.io/containerdisks/centos-stream:10
+  displayName: CentOS Stream 10
+  description: Latest CentOS Stream continuous-delivery distribution.
   os: linux
-  category: fedora
+  category: centos
   tags:
-    - fedora
+    - centos
     - rpm-based
+    - enterprise
 ---
 apiVersion: compute.cloud.platform/v1alpha1
 kind: PublicImage
@@ -74,21 +89,6 @@ spec:
 apiVersion: compute.cloud.platform/v1alpha1
 kind: PublicImage
 metadata:
-  name: debian-12
-spec:
-  image: quay.io/containerdisks/debian:12
-  displayName: Debian 12 (Bookworm)
-  description: Stable release of Debian Linux.
-  os: linux
-  category: debian
-  tags:
-    - stable
-    - debian
-    - debian-based
----
-apiVersion: compute.cloud.platform/v1alpha1
-kind: PublicImage
-metadata:
   name: debian-13
 spec:
   image: quay.io/containerdisks/debian:13
@@ -104,28 +104,44 @@ spec:
 apiVersion: compute.cloud.platform/v1alpha1
 kind: PublicImage
 metadata:
-  name: alpine-3.20
+  name: debian-12
 spec:
-  image: quay.io/containerdisks/alpine:3.20
-  displayName: Alpine Linux 3.20
-  description: Lightweight Alpine Linux image.
+  image: quay.io/containerdisks/debian:12
+  displayName: Debian 12 (Bookworm)
+  description: Stable release of Debian Linux.
   os: linux
-  category: alpine
+  category: debian
   tags:
-    - alpine
-    - lightweight
+    - stable
+    - debian
+    - debian-based
 ---
 apiVersion: compute.cloud.platform/v1alpha1
 kind: PublicImage
 metadata:
-  name: flatcar
+  name: opensuse-leap-15.6
 spec:
-  image: quay.io/containerdisks/flatcar
-  displayName: Flatcar Container Linux
-  description: Container-optimized Linux distribution.
+  image: quay.io/containerdisks/opensuse-leap:15.6
+  displayName: openSUSE Leap 15.6
+  description: openSUSE Leap enterprise-grade Linux distribution.
   os: linux
-  category: flatcar
+  category: opensuse
   tags:
-    - flatcar
-    - container-optimized
-    - immutable
+    - opensuse
+    - rpm-based
+    - enterprise
+---
+apiVersion: compute.cloud.platform/v1alpha1
+kind: PublicImage
+metadata:
+  name: opensuse-tumbleweed
+spec:
+  image: quay.io/containerdisks/opensuse-tumbleweed:1.0.0
+  displayName: openSUSE Tumbleweed
+  description: openSUSE Tumbleweed rolling-release distribution.
+  os: linux
+  category: opensuse
+  tags:
+    - opensuse
+    - rpm-based
+    - rolling

@@ -79,3 +79,7 @@ export const vmApi = {
   get: (name: string) => k8sGet(`${COMPUTE_API}/virtualmachines/${name}`),
   create: (resource: unknown) => k8sCreate(`${COMPUTE_API}/virtualmachines`, resource),
 };
+
+export const publicImageApi = {
+  list: () => k8sList<K8sResource>(`${COMPUTE_API}/publicimages`),
+};

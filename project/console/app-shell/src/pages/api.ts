@@ -107,3 +107,7 @@ export const kcApi = {
   list: () => k8sList(`${COMPUTE_API}/kubernetesclusters`),
   get: (name: string) => k8sGet(`${COMPUTE_API}/kubernetesclusters/${name}`),
 };
+
+export const publicImageApi = {
+  list: () => k8sList<K8sResource>(`${COMPUTE_API}/publicimages`),
+};
