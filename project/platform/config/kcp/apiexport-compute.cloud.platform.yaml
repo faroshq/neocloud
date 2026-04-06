@@ -13,7 +13,12 @@ spec:
     name: publicimages
     schema: v260406-6a0f2ed.publicimages.compute.cloud.platform
     storage:
-      crd: {}
+      virtual:
+        reference:
+          apiGroup: cache.kcp.io
+          kind: CachedResourceEndpointSlice
+          name: publicimages
+        identityHash: __PUBLICIMAGES_IDENTITY_HASH__
   - group: compute.cloud.platform
     name: virtualmachines
     schema: v260401-3e36d62.virtualmachines.compute.cloud.platform

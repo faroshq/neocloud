@@ -58,6 +58,9 @@ var (
 	logicalClusterGVR = schema.GroupVersionResource{
 		Group: "core.kcp.io", Version: "v1alpha1", Resource: "logicalclusters",
 	}
+	cachedResourceGVR = schema.GroupVersionResource{
+		Group: "cache.kcp.io", Version: "v1alpha1", Resource: "cachedresources",
+	}
 )
 
 // Bootstrapper sets up the kcp workspace hierarchy and API exports.
@@ -124,44 +127,54 @@ func (b *Bootstrapper) Bootstrap(ctx context.Context) error {
 	}
 	logger.Info("Got tenancy.kcp.io identity hash", "hash", identityHash)
 
-	// 5. Bootstrap APIResourceSchemas and APIExport in root:platform:providers.
+	// 5. Create providers clients and install CRDs in root:platform:providers.
 	providersConfig := configForPath(b.config, "root:platform:providers")
 	providersDynamic, providersDiscovery, err := newClients(providersConfig)
 	if err != nil {
 		return fmt.Errorf("creating providers clients: %w", err)
 	}
 
-	logger.Info("Bootstrapping APIResourceSchemas and APIExport")
-	if err := confighelpers.Bootstrap(ctx, providersDiscovery, providersDynamic, kcpconfig.ProvidersFS,
-		confighelpers.ReplaceOption("__TENANCY_IDENTITY_HASH__", identityHash),
-	); err != nil {
-		return fmt.Errorf("bootstrapping providers: %w", err)
-	}
-
-	// 6. Create APIBinding in root workspace to bind to cloud.platform APIExport.
-	logger.Info("Ensuring APIBinding for cloud.platform in root workspace")
-	if err := ensureAPIBinding(ctx, rootDynamic, "cloud.platform", "root:platform:providers"); err != nil {
-		return fmt.Errorf("creating APIBinding for cloud.platform: %w", err)
-	}
-
-	// 7. Install CRDs in root:platform:providers so PublicImage CRs can be stored there.
 	logger.Info("Installing CRDs in providers workspace")
 	if err := bootstrap.InstallCRDs(ctx, providersConfig); err != nil {
 		return fmt.Errorf("installing CRDs in providers: %w", err)
 	}
 
-	// 8. Bootstrap CachedResource and PublicImage CRs in root:platform:providers.
-	// The CachedResource tells kcp to replicate PublicImages to all bound workspaces.
-	logger.Info("Bootstrapping CachedResource in providers workspace")
-	if err := confighelpers.Bootstrap(ctx, providersDiscovery, providersDynamic, publicimagesconfig.CachedResourceFS); err != nil {
-		return fmt.Errorf("bootstrapping cached resource: %w", err)
-	}
+	// 6. Create PublicImage CRs in root:platform:providers (source for cache replication).
 	logger.Info("Bootstrapping PublicImage resources in providers workspace")
 	if err := confighelpers.Bootstrap(ctx, providersDiscovery, providersDynamic, publicimagesconfig.PublicImagesFS); err != nil {
 		return fmt.Errorf("bootstrapping public images: %w", err)
 	}
 
-	// 9. Create ClusterRoleBindings for static token users in root workspace.
+	// 7. Create CachedResource in root:platform:providers for publicimages replication.
+	logger.Info("Bootstrapping CachedResource in providers workspace")
+	if err := confighelpers.Bootstrap(ctx, providersDiscovery, providersDynamic, publicimagesconfig.CachedResourceFS); err != nil {
+		return fmt.Errorf("bootstrapping cached resource: %w", err)
+	}
+
+	// 8. Wait for CachedResource to be ready and get publicimages identity hash.
+	logger.Info("Waiting for CachedResource publicimages to be ready")
+	publicimagesIdentityHash, err := waitForCachedResourceReady(ctx, providersDynamic, "publicimages")
+	if err != nil {
+		return fmt.Errorf("waiting for CachedResource publicimages: %w", err)
+	}
+	logger.Info("Got publicimages identity hash", "hash", publicimagesIdentityHash)
+
+	// 9. Bootstrap APIResourceSchemas and APIExport in root:platform:providers.
+	logger.Info("Bootstrapping APIResourceSchemas and APIExport")
+	if err := confighelpers.Bootstrap(ctx, providersDiscovery, providersDynamic, kcpconfig.ProvidersFS,
+		confighelpers.ReplaceOption("__TENANCY_IDENTITY_HASH__", identityHash),
+		confighelpers.ReplaceOption("__PUBLICIMAGES_IDENTITY_HASH__", publicimagesIdentityHash),
+	); err != nil {
+		return fmt.Errorf("bootstrapping providers: %w", err)
+	}
+
+	// 10. Create APIBinding in root workspace to bind to cloud.platform APIExport.
+	logger.Info("Ensuring APIBinding for cloud.platform in root workspace")
+	if err := ensureAPIBinding(ctx, rootDynamic, "cloud.platform", "root:platform:providers"); err != nil {
+		return fmt.Errorf("creating APIBinding for cloud.platform: %w", err)
+	}
+
+	// 11. Create ClusterRoleBindings for static token users in root workspace.
 	if len(b.staticAuthTokens) > 0 {
 		logger.Info("Bootstrapping RBAC for static token users")
 		for _, token := range b.staticAuthTokens {
@@ -360,4 +373,22 @@ func waitForWorkspaceReady(ctx context.Context, client dynamic.Interface, name s
 		phase, _, _ := unstructured.NestedString(ws.Object, "status", "phase")
 		return phase == "Ready", nil
 	})
+}
+
+// waitForCachedResourceReady polls until a CachedResource has phase "Ready" and returns its identityHash.
+func waitForCachedResourceReady(ctx context.Context, client dynamic.Interface, name string) (string, error) {
+	var identityHash string
+	err := wait.PollUntilContextTimeout(ctx, 500*time.Millisecond, 60*time.Second, true, func(ctx context.Context) (bool, error) {
+		cr, err := client.Resource(cachedResourceGVR).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+		phase, _, _ := unstructured.NestedString(cr.Object, "status", "phase")
+		if phase != "Ready" {
+			return false, nil
+		}
+		identityHash, _, _ = unstructured.NestedString(cr.Object, "status", "identityHash")
+		return identityHash != "", nil
+	})
+	return identityHash, err
 }
