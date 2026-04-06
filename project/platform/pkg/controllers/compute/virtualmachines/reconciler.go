@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -53,9 +54,11 @@ var (
 )
 
 // imageMap maps our platform image names to KubeVirt containerDisk images.
+// Ubuntu images use custom builds with fixed /etc/fstab (nofail on UEFI mount).
+// See project/platform/images/containerdisks/CONTAINERDISKS.md for details.
 var imageMap = map[string]string{
-	"ubuntu-22.04": "quay.io/containerdisks/ubuntu:22.04",
-	"ubuntu-24.04": "quay.io/containerdisks/ubuntu:24.04",
+	"ubuntu-22.04": "ghcr.io/mjudeikis/containerdisks/ubuntu:22.04",
+	"ubuntu-24.04": "ghcr.io/mjudeikis/containerdisks/ubuntu:24.04",
 	"debian-12":    "quay.io/containerdisks/debian:12",
 	"flatcar":      "quay.io/containerdisks/flatcar",
 }
@@ -230,14 +233,68 @@ func (r *Reconciler) handlePending(ctx context.Context, c client.Client, vm *com
 	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }
 
+// provisioningTimeout is the maximum time a VM can stay in Provisioning before being marked Failed.
+const provisioningTimeout = 10 * time.Minute
+
+// isProvisioningTimedOut checks if the VM has been in Provisioning state longer than the timeout.
+// It uses the Progressing condition's LastTransitionTime as the provisioning start time.
+func (r *Reconciler) isProvisioningTimedOut(vm *computev1alpha1.VirtualMachine) bool {
+	for _, cond := range vm.Status.Conditions {
+		if cond.Type == commonv1alpha1.ConditionProgessing && cond.Status == metav1.ConditionTrue {
+			return time.Since(cond.LastTransitionTime.Time) > provisioningTimeout
+		}
+	}
+	return false
+}
+
 // handleProvisioning checks whether the KubeVirt VMI is running and transitions to Running.
 func (r *Reconciler) handleProvisioning(ctx context.Context, c client.Client, vm *computev1alpha1.VirtualMachine, logger klog.Logger) (ctrl.Result, error) {
 	kvName := kubevirtVMName(vm)
+
+	// Check if provisioning has been stuck too long.
+	if r.isProvisioningTimedOut(vm) {
+		logger.Info("Provisioning timed out, marking as Failed", "timeout", provisioningTimeout)
+		vm.Status.Phase = computev1alpha1.VirtualMachineFailed
+		vm.Status.Message = fmt.Sprintf("Provisioning timed out after %s", provisioningTimeout)
+		setCondition(&vm.Status.Conditions, metav1.Condition{
+			Type:               commonv1alpha1.ConditionProgessing,
+			Status:             metav1.ConditionFalse,
+			Reason:             "ProvisioningTimeout",
+			Message:            fmt.Sprintf("VM did not become ready within %s", provisioningTimeout),
+			LastTransitionTime: metav1.Now(),
+		})
+		if err := c.Status().Update(ctx, vm); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
 
 	var internalIP string
 	var isRunning bool
 
 	if r.workloadClient != nil {
+		// Check if the KubeVirt VM itself still exists on the workload cluster.
+		_, err := r.workloadClient.Resource(kubevirtVMGVR).Namespace(defaultNamespace).Get(ctx, kvName, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			logger.Info("KubeVirt VM disappeared during provisioning, marking as Failed", "kubevirtName", kvName)
+			vm.Status.Phase = computev1alpha1.VirtualMachineFailed
+			vm.Status.Message = "KubeVirt VM disappeared during provisioning"
+			setCondition(&vm.Status.Conditions, metav1.Condition{
+				Type:               commonv1alpha1.ConditionProgessing,
+				Status:             metav1.ConditionFalse,
+				Reason:             "VMDisappeared",
+				Message:            "KubeVirt VirtualMachine no longer exists on workload cluster",
+				LastTransitionTime: metav1.Now(),
+			})
+			if err := c.Status().Update(ctx, vm); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		} else if err != nil {
+			logger.Info("Failed to check KubeVirt VM, requeueing", "error", err)
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		}
+
 		// Check VMI status on the workload cluster.
 		vmi, err := r.workloadClient.Resource(kubevirtVMIGVR).Namespace(defaultNamespace).Get(ctx, kvName, metav1.GetOptions{})
 		if err != nil {
@@ -351,11 +408,16 @@ func kubevirtVMName(vm *computev1alpha1.VirtualMachine) string {
 func buildKubeVirtVM(name string, vm *computev1alpha1.VirtualMachine) *unstructured.Unstructured {
 	containerDiskImage := imageMap[vm.Spec.Disk.Image]
 	if containerDiskImage == "" {
-		containerDiskImage = "quay.io/containerdisks/ubuntu:24.04"
+		containerDiskImage = "ghcr.io/mjudeikis/containerdisks/ubuntu:22.04"
 	}
 
 	// Build cloud-init userdata.
 	userData := "#cloud-config\nhostname: " + name + "\n"
+	userData += "ssh_pwauth: true\n"
+	userData += "disable_root: false\n"
+	userData += "chpasswd:\n  list: |\n    root:platform\n  expire: false\n"
+	userData += "packages:\n  - openssh-server\n"
+	userData += "runcmd:\n  - systemctl enable ssh || systemctl enable sshd || true\n  - systemctl start ssh || systemctl start sshd || true\n"
 	if vm.Spec.SSH != nil && vm.Spec.SSH.PublicKey != "" {
 		userData += "ssh_authorized_keys:\n  - " + vm.Spec.SSH.PublicKey + "\n"
 	}
@@ -399,6 +461,13 @@ func buildKubeVirtVM(name string, vm *computev1alpha1.VirtualMachine) *unstructu
 			map[string]interface{}{
 				"name":       "default",
 				"masquerade": map[string]interface{}{},
+				"ports": []interface{}{
+					map[string]interface{}{
+						"name":     "ssh",
+						"port":     int64(22),
+						"protocol": "TCP",
+					},
+				},
 			},
 		},
 	}

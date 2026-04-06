@@ -40,7 +40,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/transport/spdy"
 	"k8s.io/klog/v2"
 
 	kcputil "github.com/faroshq/kcp-ref-arch/project/platform/pkg/kcp"
@@ -56,7 +55,7 @@ var (
 
 // Handler is a WebSocket SSH proxy that authenticates users, looks up their VM
 // in kcp, and tunnels the SSH connection to the KubeVirt VM via the workload
-// cluster's SPDY portforward subresource.
+// cluster's portforward subresource over WebSocket.
 type Handler struct {
 	kcpConfig        *rest.Config
 	workloadConfig   *rest.Config
@@ -97,7 +96,7 @@ func NewHandler(kcpConfig *rest.Config, workloadConfig *rest.Config, verifier *o
 // Flow:
 //  1. Authenticate the user (static token or OIDC)
 //  2. Look up the VM in the user's kcp workspace
-//  3. Dial the VM's SSH port via KubeVirt SPDY portforward
+//  3. Dial the VM's SSH port via KubeVirt WebSocket portforward
 //  4. Upgrade to WebSocket and bridge the connections
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	vmName := mux.Vars(r)["vm-name"]
@@ -139,110 +138,125 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	kvVMName := fmt.Sprintf("platform-%s", strings.ToLower(uid[:8]))
 
-	// Dial the VM's SSH port via SPDY portforward through the workload cluster API server.
-	dataStream, err := h.dialVMPortforward(kvVMName, 22)
+	// Dial the VM's SSH port via WebSocket portforward through the workload cluster API server.
+	vmWS, err := h.dialVMPortforward(kvVMName, 22)
 	if err != nil {
 		h.logger.Error(err, "Failed to connect to VM via portforward", "kubevirtVM", kvVMName)
 		writeError(w, http.StatusBadGateway, "failed to connect to VM SSH port")
 		return
 	}
-	defer dataStream.Close()
+	defer vmWS.Close()
 
 	// Upgrade client connection to WebSocket.
-	wsConn, err := h.upgrader.Upgrade(w, r, nil)
+	clientWS, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		h.logger.Error(err, "WebSocket upgrade failed")
 		return // Upgrade already wrote the error response.
 	}
-	defer wsConn.Close()
+	defer clientWS.Close()
 
 	h.logger.Info("SSH tunnel established", "user", username, "vm", vmName, "kubevirtVM", kvVMName)
 
-	// Bridge WebSocket <-> VM SSH port.
-	h.bridge(wsConn, dataStream)
+	// Bridge client WebSocket <-> VM WebSocket.
+	h.bridgeWebSockets(clientWS, vmWS)
 }
 
-// dialVMPortforward connects to a KubeVirt VM's SSH port via the SPDY portforward
-// subresource on the workload cluster's API server. This tunnels through the
-// K8s API server so we don't need direct pod network access.
-func (h *Handler) dialVMPortforward(kvVMName string, port int) (io.ReadWriteCloser, error) {
-	// Build the portforward URL for the KubeVirt VMI subresource.
+// dialVMPortforward connects to a KubeVirt VM's SSH port via WebSocket portforward
+// through the workload cluster's API server.
+func (h *Handler) dialVMPortforward(kvVMName string, port int) (*websocket.Conn, error) {
 	hostURL, err := url.Parse(h.workloadConfig.Host)
 	if err != nil {
 		return nil, fmt.Errorf("parsing workload host URL: %w", err)
 	}
 
-	pfURL := &url.URL{
-		Scheme: hostURL.Scheme,
+	// Build WebSocket URL for the KubeVirt VMI portforward subresource.
+	wsScheme := "wss"
+	if hostURL.Scheme == "http" {
+		wsScheme = "ws"
+	}
+
+	// KubeVirt portforward subresource: the port goes in the URL path, not as a query param.
+	// Format: /apis/subresources.kubevirt.io/v1/namespaces/{ns}/virtualmachineinstances/{name}/portforward/{port}/tcp
+	pfURL := url.URL{
+		Scheme: wsScheme,
 		Host:   hostURL.Host,
-		Path: fmt.Sprintf("/apis/subresources.kubevirt.io/v1/namespaces/default/virtualmachineinstances/%s/portforward",
-			kvVMName),
+		Path: fmt.Sprintf("/apis/subresources.kubevirt.io/v1/namespaces/default/virtualmachineinstances/%s/portforward/%d/tcp",
+			kvVMName, port),
 	}
 
-	// Create SPDY transport using the workload cluster's rest.Config.
-	transport, upgrader, err := spdy.RoundTripperFor(h.workloadConfig)
+	// Build TLS config with client certs from the workload rest.Config.
+	tlsConfig, err := rest.TLSConfigFor(h.workloadConfig)
 	if err != nil {
-		return nil, fmt.Errorf("creating SPDY round tripper: %w", err)
+		return nil, fmt.Errorf("building TLS config: %w", err)
+	}
+	if tlsConfig == nil {
+		tlsConfig = &tls.Config{} //nolint:gosec
 	}
 
-	h.logger.Info("Dialing SPDY portforward", "url", pfURL.String())
+	h.logger.Info("Dialing VM portforward", "url", pfURL.String(),
+		"hasCerts", tlsConfig.GetClientCertificate != nil || len(tlsConfig.Certificates) > 0,
+		"hasCA", tlsConfig.RootCAs != nil)
 
-	// Pre-flight: check the endpoint is reachable and see what status we get.
-	preReq, _ := http.NewRequest(http.MethodPost, pfURL.String(), nil)
-	preResp, preErr := (&http.Client{Transport: transport}).Do(preReq)
-	if preErr != nil {
-		h.logger.Info("Pre-flight request failed", "error", preErr)
-	} else {
-		body, _ := io.ReadAll(io.LimitReader(preResp.Body, 512))
-		preResp.Body.Close()
-		h.logger.Info("Pre-flight response", "status", preResp.StatusCode, "body", string(body))
+	dialer := websocket.Dialer{
+		TLSClientConfig: tlsConfig,
+		Subprotocols:    []string{"portforward.kubevirt.io"},
 	}
 
-	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, http.MethodPost, pfURL)
-
-	// Dial the SPDY connection using the portforward protocol.
-	streamConn, protocol, err := dialer.Dial("portforward.k8s.io")
-	if err != nil {
-		return nil, fmt.Errorf("dialing SPDY portforward to %s: %w", pfURL.String(), err)
-	}
-	h.logger.V(4).Info("SPDY portforward connected", "protocol", protocol)
-
-	// Create the request ID header (required for multiplexed connections).
-	requestID := "0"
 	headers := http.Header{}
-	headers.Set("streamType", "error")
-	headers.Set("port", fmt.Sprintf("%d", port))
-	headers.Set("requestID", requestID)
-
-	// Create error stream first (required by the portforward protocol).
-	errorStream, err := streamConn.CreateStream(headers)
-	if err != nil {
-		streamConn.Close()
-		return nil, fmt.Errorf("creating error stream: %w", err)
+	if h.workloadConfig.BearerToken != "" {
+		headers.Set("Authorization", "Bearer "+h.workloadConfig.BearerToken)
 	}
-	// Drain errors in background.
+
+	conn, resp, err := dialer.Dial(pfURL.String(), headers)
+	if err != nil {
+		if resp != nil {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			resp.Body.Close()
+			return nil, fmt.Errorf("dialing portforward WebSocket (status=%d, body=%s): %w", resp.StatusCode, string(body), err)
+		}
+		return nil, fmt.Errorf("dialing portforward WebSocket: %w", err)
+	}
+
+	h.logger.Info("VM portforward connected", "subprotocol", conn.Subprotocol())
+	return conn, nil
+}
+
+// bridgeWebSockets pipes data between two WebSocket connections.
+func (h *Handler) bridgeWebSockets(clientWS, vmWS *websocket.Conn) {
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Client → VM.
 	go func() {
-		buf := make([]byte, 1024)
+		defer wg.Done()
 		for {
-			n, err := errorStream.Read(buf)
-			if n > 0 {
-				klog.V(4).Infof("portforward error stream: %s", string(buf[:n]))
-			}
+			msgType, data, err := clientWS.ReadMessage()
 			if err != nil {
-				return
+				break
+			}
+			if err := vmWS.WriteMessage(msgType, data); err != nil {
+				break
 			}
 		}
+		vmWS.Close()
 	}()
 
-	// Create data stream.
-	headers.Set("streamType", "data")
-	dataStream, err := streamConn.CreateStream(headers)
-	if err != nil {
-		streamConn.Close()
-		return nil, fmt.Errorf("creating data stream: %w", err)
-	}
+	// VM → Client.
+	go func() {
+		defer wg.Done()
+		for {
+			msgType, data, err := vmWS.ReadMessage()
+			if err != nil {
+				break
+			}
+			if err := clientWS.WriteMessage(msgType, data); err != nil {
+				break
+			}
+		}
+		clientWS.Close()
+	}()
 
-	return dataStream, nil
+	wg.Wait()
 }
 
 // authenticate extracts and verifies the bearer token from the request.
@@ -322,47 +336,6 @@ func (h *Handler) lookupVM(ctx context.Context, username, vmName string) (*unstr
 	}
 
 	return vm, nil
-}
-
-// bridge pipes data between the client WebSocket and the VM portforward stream.
-func (h *Handler) bridge(clientWS *websocket.Conn, vmStream io.ReadWriteCloser) {
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	// Client WebSocket → VM.
-	go func() {
-		defer wg.Done()
-		for {
-			_, data, err := clientWS.ReadMessage()
-			if err != nil {
-				break
-			}
-			if _, err := vmStream.Write(data); err != nil {
-				break
-			}
-		}
-		vmStream.Close()
-	}()
-
-	// VM → Client WebSocket.
-	go func() {
-		defer wg.Done()
-		buf := make([]byte, 32*1024)
-		for {
-			n, err := vmStream.Read(buf)
-			if n > 0 {
-				if werr := clientWS.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
-					break
-				}
-			}
-			if err != nil {
-				break
-			}
-		}
-		clientWS.Close()
-	}()
-
-	wg.Wait()
 }
 
 func extractToken(r *http.Request) string {
