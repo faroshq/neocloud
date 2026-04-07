@@ -8,14 +8,14 @@
 # IMPORTANT:
 #   - Let's Encrypt production has rate limits. Use the staging issuer
 #     (letsencrypt-staging) for testing to avoid hitting these limits.
-#   - The HTTP-01 solver uses the Cilium ingress class. If you are using a
-#     different ingress controller, update the class accordingly.
+#   - The HTTP-01 solver uses the platform ingress class. Update the
+#     ingressClassName to match your Gateway API / ingress controller.
 #   - Update the email address to a valid address for your organization.
 #     Let's Encrypt uses this for expiry notifications and account recovery.
 #
 # Prerequisites:
 #   - cert-manager installed in the cluster
-#   - Cilium configured as the ingress controller (or update solver class)
+#   - Ingress controller deployed (e.g., Envoy Gateway, Nginx Gateway Fabric)
 #   - DNS records pointing to the cluster's public IP
 # =============================================================================
 apiVersion: cert-manager.io/v1
@@ -43,6 +43,6 @@ spec:
     solvers:
       - http01:
           ingress:
-            # Use Cilium as the ingress class for solving HTTP-01 challenges
-            # Change this if using a different ingress controller (e.g., nginx, traefik)
-            ingressClassName: cilium
+            # Ingress class for solving HTTP-01 challenges
+            # Update to match your ingress controller (e.g., envoy, nginx, traefik)
+            ingressClassName: envoy

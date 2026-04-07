@@ -66,7 +66,7 @@ spec:
 
   # --- Network ---
   # Use host networking if dedicated storage network interfaces are available.
-  # For overlay networks (Cilium, Calico), leave this commented out.
+  # For overlay networks (Kube-OVN, Calico), leave this commented out.
   # network:
   #   provider: host
 

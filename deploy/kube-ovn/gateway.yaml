@@ -1,5 +1,10 @@
 # Platform Gateway for tenant workload HTTP(S) ingress.
-# Cilium implements the Gateway API natively — no separate ingress controller needed.
+# Kube-OVN does not include a built-in Gateway API implementation.
+# Deploy a separate Gateway API controller (e.g., Envoy Gateway, Nginx Gateway
+# Fabric, or Contour) for HTTP routing.
+#
+# This manifest assumes Envoy Gateway is deployed as the Gateway API controller.
+# Adjust gatewayClassName to match your chosen implementation.
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
@@ -8,7 +13,7 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
-  gatewayClassName: cilium
+  gatewayClassName: envoy    # Change to: nginx, contour, etc.
   listeners:
     # HTTPS listener — terminates TLS for all tenant workloads
     - name: https

@@ -15,7 +15,7 @@ Layer 2: Platform              kcp, cloud APIs, identity, cloud operator
                                ← DEMO
 ──────────────────────────────────────────────────────────────────────
 Layer 1: Infrastructure        Bare metal → Kubernetes (Metal3, Flatcar,
-                               Cilium, Ceph, GPU Operator, KubeVirt)
+                               Kube-OVN, Ceph, GPU Operator, KubeVirt)
 ```
 
 ## Documents
@@ -36,7 +36,7 @@ Layer 1: Infrastructure        Bare metal → Kubernetes (Metal3, Flatcar,
 |-----------|------|---------|
 | [kcp](https://kcp.io) | Multi-tenant control plane | Apache 2.0 |
 | [Kubernetes](https://kubernetes.io) | Workload execution | Apache 2.0 |
-| [Cilium](https://cilium.io) | Networking + isolation + ingress | Apache 2.0 |
+| [Kube-OVN](https://kubeovn.github.io/docs/) | Networking + tenant virtual networks | Apache 2.0 |
 | [Dex](https://dexidp.io) | OIDC broker (demo) | Apache 2.0 |
 
 ## Status

@@ -1,0 +1,48 @@
+# Tenant Virtual Network Template
+#
+# This template is applied by the platform controller when a tenant requests
+# a VirtualNetwork. Each tenant gets:
+#   1. A dedicated Kube-OVN Vpc (OVN logical router)
+#   2. A Subnet within that Vpc (OVN logical switch)
+#
+# VMs attached to this subnet are completely isolated at the dataplane level.
+# There is no route between Vpcs unless explicitly configured.
+# Overlapping CIDRs across tenants are fully supported.
+#
+# Replace TENANT_NAMESPACE and TENANT_CIDR with actual values.
+
+apiVersion: kubeovn.io/v1
+kind: Vpc
+metadata:
+  name: TENANT_NAMESPACE-vpc
+spec:
+  # namespaces: Bind this Vpc to the tenant namespace.
+  # Pods/VMs in this namespace will use this Vpc's network.
+  namespaces:
+    - TENANT_NAMESPACE
+---
+apiVersion: kubeovn.io/v1
+kind: Subnet
+metadata:
+  name: TENANT_NAMESPACE-net
+spec:
+  # vpc: Reference to the tenant's Vpc.
+  vpc: TENANT_NAMESPACE-vpc
+
+  # cidrBlock: The IP range for this tenant's virtual network.
+  # Can overlap with other tenants' subnets — each Vpc is independent.
+  cidrBlock: TENANT_CIDR    # e.g., 10.0.0.0/24
+
+  protocol: IPv4
+
+  # namespaces: Restrict this subnet to the tenant's namespace.
+  namespaces:
+    - TENANT_NAMESPACE
+
+  # gateway: The default gateway for this subnet.
+  # Kube-OVN assigns the first usable IP as the gateway by default.
+  # gateway: 10.0.0.1
+
+  # excludeIps: Reserve IPs from allocation (optional).
+  # excludeIps:
+  #   - 10.0.0.1

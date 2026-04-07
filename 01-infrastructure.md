@@ -16,7 +16,7 @@
 2. [Hardware Requirements](#2-hardware-requirements)
 3. [Bare Metal Provisioning — Metal3 + Flatcar](#3-bare-metal-provisioning--metal3--flatcar)
 4. [Kubernetes Layer](#4-kubernetes-layer)
-5. [Networking — Cilium](#5-networking--cilium)
+5. [Networking — Kube-OVN](#5-networking--kube-ovn)
 6. [Storage — Rook-Ceph](#6-storage--rook-ceph)
 7. [GPU Management — NVIDIA GPU Operator](#7-gpu-management--nvidia-gpu-operator)
 8. [VM Infrastructure — KubeVirt](#8-vm-infrastructure--kubevirt)
@@ -34,7 +34,7 @@ Layer 1 answers a single question: **how do I go from physical servers in a rack
 This layer takes bare metal hardware — commodity servers with CPUs, GPUs, disks, and network interfaces — and produces a fully operational Kubernetes cluster with:
 
 - **Automated bare metal provisioning** via Metal3 and Flatcar Container Linux
-- **Container networking and security** via Cilium (CNI, NetworkPolicy, Gateway API, encryption)
+- **Container networking and tenant virtual networks** via Kube-OVN (CNI, NetworkPolicy, Vpc/Subnet isolation)
 - **Unified storage** via Rook-Ceph (block volumes and S3-compatible object storage)
 - **GPU acceleration** via the NVIDIA GPU Operator
 - **VM support** via KubeVirt for workloads that need full virtual machines
@@ -49,7 +49,7 @@ Layer 1 (this document)           Layer 2 (02-platform.md)
 Bare metal servers                Multi-tenant control plane
   → Flatcar OS                      → Tenant workspaces
   → Kubernetes cluster              → Platform APIs
-  → Cilium networking               → Identity and access
+  → Kube-OVN networking               → Identity and access
   → Rook-Ceph storage               → Self-service onboarding
   → GPU Operator                    → Billing and metering
   → KubeVirt VMs
@@ -65,7 +65,7 @@ Layer 1 follows the same principles as the overall architecture:
 
 | # | Principle | Application to Layer 1 |
 |---|-----------|----------------------|
-| 1 | **Minimal moving parts** | Cilium replaces kube-proxy, ingress controller, and network policy enforcer. Rook-Ceph replaces separate block and object storage systems. |
+| 1 | **Minimal moving parts** | Kube-OVN serves as CNI, NetworkPolicy enforcer, and provides tenant virtual network isolation via Vpc/Subnet CRDs. Rook-Ceph replaces separate block and object storage systems. |
 | 2 | **Open source, CNCF-aligned** | Every component is open source with an OSI-approved license. Prefer CNCF projects. |
 | 3 | **Interface-based** | Bare metal provisioning, storage, and networking are behind swappable interfaces. Alternatives are documented. |
 | 4 | **Sovereign by default** | All infrastructure runs on the provider's hardware. No external dependencies. |
@@ -117,7 +117,7 @@ The infrastructure requires three logical network segments. These can be separat
 │                                                        │
 │  3. Cluster Network (Kubernetes + workloads)          │
 │     ├── Node-to-node communication                    │
-│     ├── Pod overlay (VXLAN) or native routing         │
+│     ├── Pod overlay (Geneve/VXLAN) or native routing   │
 │     ├── Service load balancing                        │
 │     └── External access (ingress, load balancer IPs) │
 └──────────────────────────────────────────────────────┘
@@ -289,7 +289,7 @@ The platform operates two logical cluster tiers:
 │  Platform control plane      │     │  Tenant workloads            │
 │  Metal3 + Cluster API        │     │  (pods, VMs, GPU jobs)       │
 │  Prometheus + Grafana        │     │                              │
-│  Platform operators          │     │  Cilium (CNI + ingress)      │
+│  Platform operators          │     │  Kube-OVN (CNI + VirtualNet) │
 │  cert-manager                │     │  NVIDIA GPU Operator         │
 │                              │     │  KubeVirt (VMs)              │
 │  Runs on CPU-only nodes      │     │  Rook-Ceph (storage)         │
@@ -353,157 +353,154 @@ spec:
 
 ---
 
-## 5. Networking — Cilium
+## 5. Networking — Kube-OVN
 
 ### Role
 
-Cilium (Apache 2.0, CNCF Graduated) serves multiple roles in the platform, replacing several separate components with a single eBPF-based networking stack:
+Kube-OVN (Apache 2.0, CNCF Sandbox) serves as both the cluster CNI and the foundation for tenant virtual network isolation. It provides:
 
 ```
-Role                    Cilium Feature              Replaces
-─────────────────────────────────────────────────────────────────
-Container networking    eBPF dataplane              kube-proxy + flannel/calico
-Tenant isolation        NetworkPolicy (L3/L4/L7)    Calico NetworkPolicy
-HTTP ingress            Gateway API (HTTPRoute)      Ingress controller (nginx, envoy)
-TCP/UDP routing         Gateway API (TCPRoute)       Separate L4 LB
-Encryption              WireGuard (node-to-node)     IPsec or manual WireGuard
-Observability           Hubble (flow visibility)     Separate network monitor
-Load balancing          Service load balancing       MetalLB
+Role                    Kube-OVN Feature                     Replaces
+──────────────────────────────────────────────────────────────────────────
+Container networking    OVN/OVS dataplane                    kube-proxy + flannel/calico
+Tenant virtual networks Vpc + Subnet CRDs                   Multus + secondary CNI
+Tenant isolation        Vpc-level dataplane isolation         NetworkPolicy-only isolation
+NetworkPolicy           Standard K8s NetworkPolicy support   Calico NetworkPolicy
+Overlay networking      Geneve/VXLAN encapsulation           Separate overlay CNI
+Load balancing          OVN load balancing                   MetalLB (partial)
 ```
 
-One component, multiple roles. This is a direct application of the "minimal moving parts" design principle.
+Kube-OVN is the sole CNI for the platform. It handles both default cluster pod networking (for platform system pods) and isolated tenant virtual networks (for KubeVirt VMs), eliminating the need for Multus or a secondary CNI.
 
-### Why Cilium
+### Why Kube-OVN
 
-- **CNCF Graduated** — production-ready, broadly adopted
 - **Apache 2.0** — no commercial gating
-- **Single component** — CNI + NetworkPolicy + Gateway API + encryption + observability
-- **eBPF-based** — high performance, programmable dataplane
-- **Replaces kube-proxy** — direct service routing without iptables
+- **CNCF Sandbox** — active community, production deployments at scale
+- **Vpc/Subnet CRDs** — native multi-tenant virtual network isolation with overlapping CIDRs
+- **OVN-based** — proven networking backend (same foundation as OpenShift networking)
+- **Single CNI** — handles both platform pod networking and tenant VM networks
+- **KubeVirt compatible** — first-class support for VM networking via OVN logical switches
+
+### Tenant Virtual Networks
+
+The key architectural decision: tenant KubeVirt VMs connect **only** to their tenant's virtual network, not the default pod network. This provides true dataplane isolation — not just policy-based filtering.
+
+Kube-OVN's `Vpc` CRD creates an independent OVN logical router with its own routing table. Each `Subnet` within a Vpc is an OVN logical switch. VMs on different Vpcs are isolated at the OVN dataplane level — separate Geneve VNIs, separate forwarding tables.
+
+```
+Kube-OVN
+  ├── default Vpc (built-in)
+  │     └── ovn-default subnet 10.16.0.0/16  → platform pods (controllers, operators, system)
+  │
+  ├── tenant-a Vpc
+  │     └── subnet 10.0.0.0/24               → tenant A KubeVirt VMs
+  │
+  └── tenant-b Vpc
+        └── subnet 10.0.0.0/24               → tenant B KubeVirt VMs (overlapping CIDR, no conflict)
+```
+
+Overlapping CIDRs across tenants are fully supported — each Vpc is an independent network domain.
 
 ### Overlay Mode (Default)
 
-The default networking mode is **VXLAN overlay**:
+The default networking mode is **Geneve overlay**:
 
 - Works on any network topology (flat L2, L3 routed, across subnets)
 - No special switch or router configuration required
 - Suitable for hosted bare metal where underlay control is limited
+- Each Vpc gets a unique tunnel ID for dataplane isolation
 
-This is the recommended starting point. Switch to native routing or BGP when performance requirements and network control allow.
+This is the recommended starting point.
 
-### Production Networking Modes
-
-| Mode | When to Use | Requirements | Performance |
-|------|------------|--------------|-------------|
-| **VXLAN overlay** | Default, works everywhere | None | Good |
-| Native routing | Better performance, same L2 | All nodes on same subnet | Better |
-| **BGP** | Multi-rack, L3 routed | BGP-capable ToR switches | Best |
-
-For multi-rack production deployments, BGP peering with Cilium provides native routing across racks without overlay overhead.
-
-### Cilium Installation
+### Kube-OVN Installation
 
 ```yaml
 # Helm values for workload cluster
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  name: cilium
+  name: kube-ovn
 spec:
   chart:
     spec:
-      chart: cilium
-      version: "1.16.x"
+      chart: kube-ovn
+      version: "1.13.x"
       sourceRef:
         kind: HelmRepository
-        name: cilium
+        name: kube-ovn
   values:
-    kubeProxyReplacement: true
-    gatewayAPI:
-      enabled: true
-    encryption:
-      enabled: true
-      type: wireguard
-    hubble:
-      enabled: true
-      relay:
-        enabled: true
-    l2announcements:
-      enabled: true
+    replicaCount: 3
+    IFACE: "eth0"
+    POD_CIDR: "10.16.0.0/16"
+    SVC_CIDR: "10.96.0.0/12"
+    ENABLE_LB: true
+    ENABLE_NP: true
 ```
 
 ### Tenant Network Isolation
 
-Each tenant namespace gets default-deny Cilium NetworkPolicies. Tenants cannot reach each other's workloads at the network level.
+Each tenant gets a dedicated Vpc and Subnet. VMs are attached only to their tenant's subnet — no connection to the default pod network.
 
 ```yaml
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
+# Platform controller creates this when a tenant requests a VirtualNetwork
+apiVersion: kubeovn.io/v1
+kind: Vpc
 metadata:
-  name: tenant-isolation
-  namespace: tenant-a
+  name: tenant-a-vpc
 spec:
-  endpointSelector: {}
-  ingress:
-    - fromEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: tenant-a
-  egress:
-    - toEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: tenant-a
-    - toEntities:
-        - world  # allow internet egress (configurable)
-    - toCIDR:
-        - 10.96.0.0/12  # allow cluster DNS
+  namespaces:
+    - tenant-a
+---
+apiVersion: kubeovn.io/v1
+kind: Subnet
+metadata:
+  name: tenant-a-net
+spec:
+  vpc: tenant-a-vpc
+  cidrBlock: 10.0.0.0/24
+  protocol: IPv4
+  namespaces:
+    - tenant-a
 ```
 
-These policies are applied automatically by the platform operator when a tenant namespace is created. The default posture is deny-all cross-tenant traffic.
+VMs on `tenant-a-net` can only communicate with other VMs on the same subnet. Cross-tenant traffic is impossible at the dataplane level — there is no route between Vpcs unless explicitly configured.
+
+Standard Kubernetes NetworkPolicies are supported within each Vpc for finer-grained control.
 
 ### Load Balancing on Bare Metal
 
-On bare metal there is no cloud load balancer. Cilium provides two mechanisms for exposing services externally:
-
-**L2 Announcements** — Cilium responds to ARP requests for service IPs on the local network. Simple, works on any L2 segment.
+On bare metal there is no cloud load balancer. For exposing services externally, deploy **MetalLB** alongside Kube-OVN:
 
 ```yaml
-apiVersion: cilium.io/v2alpha1
-kind: CiliumL2AnnouncementPolicy
+# MetalLB L2 advertisement
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
 metadata:
   name: default
-spec:
-  interfaces:
-    - eth0
-  externalIPs: true
-  loadBalancerIPs: true
-```
-
-**IP Pools** — Define a range of IPs for LoadBalancer services.
-
-```yaml
-apiVersion: cilium.io/v2alpha1
-kind: CiliumLoadBalancerIPPool
+  namespace: metallb-system
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
 metadata:
-  name: default-pool
+  name: public-pool
+  namespace: metallb-system
 spec:
-  blocks:
-    - cidr: "192.168.10.0/24"
+  addresses:
+    - 192.168.10.0/24
 ```
 
-For BGP deployments, Cilium advertises service IPs via BGP instead of L2 announcements.
+### HTTP Ingress
 
-### Gateway API for HTTP Ingress
-
-Cilium implements the Kubernetes Gateway API for HTTP routing:
+Kube-OVN does not include a built-in HTTP ingress controller. Deploy a separate Gateway API implementation (e.g., Envoy Gateway, Nginx Gateway Fabric, or Contour) for tenant HTTP routing:
 
 ```yaml
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: platform-gateway
-  namespace: cilium-gateway
+  namespace: platform-system
 spec:
-  gatewayClassName: cilium
+  gatewayClassName: envoy   # or nginx, contour
   listeners:
     - name: https
       protocol: HTTPS
@@ -521,7 +518,7 @@ metadata:
 spec:
   parentRefs:
     - name: platform-gateway
-      namespace: cilium-gateway
+      namespace: platform-system
   hostnames:
     - "app.tenant-a.cloud.example.com"
   rules:
@@ -532,7 +529,7 @@ spec:
 
 Combined with **cert-manager** for automated TLS certificates and **external-dns** for DNS record automation.
 
-> See `deploy/cilium/` for full deployment manifests.
+> See `deploy/kube-ovn/` for full deployment manifests.
 
 ---
 
@@ -920,19 +917,11 @@ Flatcar's immutable design provides the first security boundary:
 - **Minimal attack surface** — no package manager, no SSH by default (configurable), no unnecessary services
 - **Auto-update** — Flatcar checks for updates and applies them in a rolling fashion across the cluster
 
-### Cilium WireGuard Encryption
+### WireGuard Encryption
 
-All node-to-node traffic is encrypted using WireGuard, configured in Cilium:
+All node-to-node traffic can be encrypted using WireGuard at the OS level or via a dedicated WireGuard mesh (e.g., Netmaker, wg-quick systemd units on Flatcar). This provides transparent encryption for all pod-to-pod communication across nodes without application changes.
 
-```yaml
-# Cilium Helm values
-encryption:
-  enabled: true
-  type: wireguard
-  nodeEncryption: true
-```
-
-This provides transparent encryption for all pod-to-pod communication across nodes. No application changes required.
+Kube-OVN's Geneve tunnels can also be configured to run over encrypted WireGuard interfaces for defense-in-depth.
 
 ### etcd Encryption at Rest
 
@@ -980,9 +969,9 @@ GPU and KubeVirt workloads run in namespaces with adjusted policies to allow dev
 
 ### Network Security
 
-- **Default-deny NetworkPolicy** — all tenant namespaces start with deny-all ingress and egress
-- **Cilium L7 policies** — HTTP-aware filtering for fine-grained access control
-- **No inter-tenant traffic** — network-level isolation between tenant namespaces
+- **Vpc-level dataplane isolation** — each tenant gets a dedicated Kube-OVN Vpc with its own OVN logical router
+- **Standard NetworkPolicy** — Kubernetes NetworkPolicy supported within each Vpc for fine-grained control
+- **No inter-tenant traffic** — VMs on different Vpcs are isolated at the OVN dataplane level, not just policy
 
 ### Summary of Security Layers
 
@@ -990,8 +979,8 @@ GPU and KubeVirt workloads run in namespaces with adjusted policies to allow dev
 Layer           Mechanism                       Protects Against
 ──────────────────────────────────────────────────────────────────────
 OS              Flatcar immutable root          Host compromise, tampering
-Network         Cilium WireGuard encryption     Traffic interception
-Network         Default-deny NetworkPolicy      Lateral movement
+Network         WireGuard encryption            Traffic interception
+Network         Kube-OVN Vpc isolation          Lateral movement
 Data            etcd encryption at rest         Data theft from disk
 Runtime         Pod Security Standards          Container breakout
 Runtime         gVisor (optional)               Kernel exploits
@@ -1012,7 +1001,7 @@ Secrets         etcd encryption + RBAC          Secret exposure
 | **Flatcar Container Linux** | Immutable OS | Apache 2.0 | Incubating |
 | **Kubernetes** (kubeadm) | Container orchestration | Apache 2.0 | Graduated |
 | **Cluster API** | Cluster lifecycle management | Apache 2.0 | — |
-| **Cilium** | CNI + NetworkPolicy + Gateway API + encryption | Apache 2.0 | Graduated |
+| **Kube-OVN** | CNI + Vpc/Subnet tenant isolation + NetworkPolicy | Apache 2.0 | Sandbox |
 | **Rook-Ceph** | Block + object storage | Apache 2.0 | Graduated |
 | **NVIDIA GPU Operator** | GPU driver + device plugin + monitoring | Apache 2.0 | — |
 | **KubeVirt** | VM management on Kubernetes | Apache 2.0 | Incubating |
@@ -1039,7 +1028,7 @@ Several Layer 1 components have EU origins:
 | Metal3 | `deploy/metal3/` |
 | Management cluster | `deploy/management-cluster/` |
 | Workload cluster | `deploy/workload-cluster/` |
-| Cilium | `deploy/cilium/` |
+| Kube-OVN | `deploy/kube-ovn/` |
 | Rook-Ceph | `deploy/storage/` |
 | GPU Operator | `deploy/gpu/` |
 | KubeVirt | `deploy/kubevirt/` |

@@ -104,7 +104,7 @@ Future dimensions are added by emitting new CloudEvents to OpenMeter — no chan
 | Future Dimension | Unit | Source |
 |-----------------|------|--------|
 | Storage | GB-months | Rook-Ceph metrics |
-| Network egress | GB | Cilium flow logs |
+| Network egress | GB | Kube-OVN flow logs |
 | Public IP | IP-hours | IP allocation controller |
 | Object storage | GB-months + requests | MinIO / Ceph RGW metrics |
 
@@ -514,7 +514,7 @@ No manual certificate rotation is required under normal operations. Monitor the 
 
 ### cert-manager + Let's Encrypt
 
-All public-facing endpoints use TLS certificates from Let's Encrypt, managed by cert-manager. A `ClusterIssuer` resource configures ACME with HTTP-01 challenges via Cilium ingress. cert-manager automatically provisions, renews, and rotates certificates for all platform endpoints. See `deploy/tls/cluster-issuer.yaml` for the full manifest.
+All public-facing endpoints use TLS certificates from Let's Encrypt, managed by cert-manager. A `ClusterIssuer` resource configures ACME with HTTP-01 challenges via the platform ingress controller. cert-manager automatically provisions, renews, and rotates certificates for all platform endpoints. See `deploy/tls/cluster-issuer.yaml` for the full manifest.
 
 ### Required DNS Records
 

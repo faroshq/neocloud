@@ -94,7 +94,7 @@ The Kubernetes ecosystem has matured to the point where most building blocks for
 | 2 | **Interface-based architecture** | External dependencies (identity, payments, bare metal provisioning) are behind well-defined interfaces. Default implementations ship with the platform, but providers can swap them for sovereign or custom alternatives. |
 | 3 | **Kubernetes-native APIs everywhere** | All platform APIs are Kubernetes-style CRDs. This means standard tooling (kubectl, client-go, controller-runtime, GitOps) works out of the box. The learning curve for operators familiar with Kubernetes is minimal. |
 | 4 | **Operator pattern for service fulfillment** | High-level tenant APIs are fulfilled by operators running against backend infrastructure. Adding a new service type means defining a CRD + deploying an operator. No platform core changes required. |
-| 5 | **Minimal moving parts** | Small team = small stack. Prefer components that serve multiple purposes (e.g., Cilium for CNI + NetworkPolicy + Gateway API + observability). |
+| 5 | **Minimal moving parts** | Small team = small stack. Prefer components that serve multiple purposes (e.g., Kube-OVN for CNI + tenant virtual networks + NetworkPolicy). |
 | 6 | **Open source, CNCF-aligned** | Every component must be open source with an OSI-approved license. Prefer CNCF projects where available. No vendor lock-in, no commercial-only dependencies in the critical path. |
 | 7 | **Sovereign by default** | The entire platform runs on the provider's infrastructure. No phone-home, no SaaS requirements. External integrations (Google OIDC, Stripe) are convenience options, not requirements. |
 
@@ -148,7 +148,7 @@ The Kubernetes ecosystem has matured to the point where most building blocks for
 │  │  │ services │ │ GPU jobs │ │ services │                 │    │
 │  │  └──────────┘ └──────────┘ └──────────┘                 │    │
 │  │                                                           │    │
-│  │  Cilium (CNI + NetworkPolicy + Gateway API)               │    │
+│  │  Kube-OVN (CNI + Vpc/Subnet tenant isolation)             │    │
 │  │  NVIDIA GPU Operator · Kueue · KubeVirt                   │    │
 │  │  OpenMeter Collector · DCGM Exporter                      │    │
 │  └─────────────────────────────────────────────────────────┘    │
@@ -460,7 +460,7 @@ The platform operates two logical cluster tiers:
 │  kcp (control plane)         │     │  Tenant workloads            │
 │  Zitadel (identity)          │     │  (pods, VMs, GPU jobs)       │
 │  OpenMeter (billing)         │     │                              │
-│  Prometheus + Grafana        │     │  Cilium (CNI + ingress)      │
+│  Prometheus + Grafana        │     │  Kube-OVN (CNI + VirtualNet) │
 │  Platform operators          │     │  NVIDIA GPU Operator         │
 │  Metal3 + CAPI               │     │  Kueue (scheduling)          │
 │  cert-manager                │     │  KubeVirt (VMs)              │
@@ -498,7 +498,7 @@ Layer 1: API Isolation (kcp)
 Layer 2: Workload Isolation (Backend Cluster)
 ─────────────────────────────────────────────
 - Each tenant gets a namespace (operator-managed)
-- Cilium NetworkPolicy: deny all cross-tenant traffic
+- Kube-OVN Vpc isolation: dataplane-level tenant separation
 - ResourceQuota per namespace
 - gVisor RuntimeClass for non-GPU workloads (optional)
 - Whole GPU allocation (no sharing in v1)
@@ -738,71 +738,62 @@ This is documented as a future enhancement. The v1 demo supports single-node GPU
 
 ## 12. Networking
 
-### CNI: Cilium
+### CNI: Kube-OVN
 
-Cilium (Apache 2.0, CNCF Graduated) serves multiple roles in the platform:
+Kube-OVN (Apache 2.0, CNCF Sandbox) serves as both the cluster CNI and the foundation for tenant virtual network isolation:
 
 ```
-Role                    Cilium Feature              Status
-─────────────────────────────────────────────────────────────
-Container networking    eBPF dataplane              Production
-Tenant isolation        NetworkPolicy (L3/L4/L7)    Production
-HTTP ingress            Gateway API (HTTPRoute)      Production
-TCP/UDP routing         Gateway API (TCPRoute)       Production
-Encryption              WireGuard (node-to-node)     Production
-Observability           Hubble (flow visibility)     Production
-Load balancing          Service load balancing       Production
+Role                    Kube-OVN Feature                     Status
+──────────────────────────────────────────────────────────────────────
+Container networking    OVN/OVS dataplane                    Production
+Tenant virtual networks Vpc + Subnet CRDs                   Production
+Tenant isolation        Vpc-level dataplane isolation         Production
+NetworkPolicy           Standard K8s NetworkPolicy           Production
+Overlay networking      Geneve/VXLAN encapsulation           Production
+Load balancing          OVN load balancing                   Production
 ```
 
-Using Cilium for all networking functions eliminates the need for separate ingress controllers, kube-proxy, and network policy enforcers. One component, multiple roles.
+Kube-OVN is the sole CNI. It handles default cluster pod networking (platform pods) and isolated tenant virtual networks (KubeVirt VMs), eliminating the need for Multus or a secondary CNI.
 
 ### Overlay Networking
 
-The default networking mode is **VXLAN overlay**:
+The default networking mode is **Geneve overlay**:
 
 - Works on any network topology (flat L2, L3 routed, across subnets)
 - No special switch/router configuration required
 - Suitable for hosted bare metal where underlay control is limited
-
-**Production alternatives** (documented for providers with network control):
-
-| Mode | When to use | Requirements |
-|------|------------|--------------|
-| VXLAN overlay | Default, works everywhere | None |
-| Native routing | Better performance, same L2 | All nodes on same subnet |
-| BGP | Multi-rack, L3 routed | BGP-capable switches |
+- Each Vpc gets a unique tunnel ID for dataplane isolation
 
 ### Tenant Network Isolation
 
-Each tenant namespace gets default-deny Cilium NetworkPolicies:
+Each tenant gets a dedicated Kube-OVN Vpc with its own OVN logical router. Tenant KubeVirt VMs connect only to their Vpc's subnet — not the default pod network. This provides true dataplane isolation.
 
 ```yaml
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
+apiVersion: kubeovn.io/v1
+kind: Vpc
 metadata:
-  name: tenant-isolation
-  namespace: tenant-a
+  name: tenant-a-vpc
 spec:
-  endpointSelector: {}
-  ingress:
-    - fromEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: tenant-a
-  egress:
-    - toEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: tenant-a
-    - toEntities:
-        - world  # allow internet egress (configurable)
-    - toCIDR:
-        - 10.96.0.0/12  # allow cluster DNS
+  namespaces:
+    - tenant-a
+---
+apiVersion: kubeovn.io/v1
+kind: Subnet
+metadata:
+  name: tenant-a-net
+spec:
+  vpc: tenant-a-vpc
+  cidrBlock: 10.0.0.0/24
+  protocol: IPv4
+  namespaces:
+    - tenant-a
 ```
 
-This ensures tenants cannot reach each other's workloads at the network level.
+VMs on different Vpcs are completely isolated at the OVN dataplane level. Overlapping CIDRs across tenants are fully supported — each Vpc is an independent network domain.
 
 ### Tenant Access to Workloads
 
-**HTTP workloads** — Cilium Gateway API provides multi-tenant ingress:
+**HTTP workloads** — a separate Gateway API implementation (e.g., Envoy Gateway) provides multi-tenant ingress:
 
 ```
 tenant-a.cloud.example.com ──▶ Gateway HTTPRoute ──▶ tenant-a/service
@@ -1147,7 +1138,7 @@ kcp's built-in multi-layer authorization:
 | Boundary | Mechanism |
 |----------|-----------|
 | API isolation | kcp workspaces (logical clusters) |
-| Network isolation | Cilium NetworkPolicy (default deny cross-tenant) |
+| Network isolation | Kube-OVN Vpc isolation (dataplane-level tenant separation) |
 | Compute isolation | Separate namespaces, ResourceQuota |
 | GPU isolation | Whole GPU allocation (no sharing) |
 | Runtime sandboxing | gVisor RuntimeClass (non-GPU workloads) |
@@ -1180,7 +1171,7 @@ kcp's built-in multi-layer authorization:
 | **Zitadel** | Identity / OIDC | AGPL-3.0 | — | Go |
 | **OpenMeter** | Metering + billing | Apache 2.0 | — | Go |
 | **Kubernetes** (kubeadm) | Workload orchestration | Apache 2.0 | Graduated | Go |
-| **Cilium** | CNI + NetworkPolicy + Ingress | Apache 2.0 | Graduated | Go |
+| **Kube-OVN** | CNI + Vpc/Subnet tenant isolation + NetworkPolicy | Apache 2.0 | Sandbox | Go |
 
 ### Infrastructure Components
 
@@ -1228,7 +1219,7 @@ kcp's built-in multi-layer authorization:
 All components use OSI-approved open source licenses:
 
 ```
-Apache 2.0 (permissive):  kcp, Metal3, Flatcar, Cilium, Kubernetes,
+Apache 2.0 (permissive):  kcp, Metal3, Flatcar, Kube-OVN, Kubernetes,
                            Rook-Ceph, OpenMeter, Kueue, KubeVirt,
                            Prometheus, VictoriaMetrics, cert-manager,
                            NVIDIA GPU Operator, gVisor, Cluster API
@@ -1319,10 +1310,11 @@ The EU's Important Project of Common European Interest on Cloud Infrastructure a
 
 ### Advanced Networking (v2)
 
-- BGP peering with Cilium for native routing across racks
-- Network bandwidth QoS per tenant
+- BGP peering via Kube-OVN for native routing across racks
+- Network bandwidth QoS per tenant via Kube-OVN QoS policies
 - IPv6 support
 - VPN/WireGuard mesh for cross-site deployments
+- Inter-Vpc routing for controlled cross-tenant connectivity
 
 ### Advanced Isolation (v2)
 
@@ -1358,9 +1350,9 @@ This section records the architectural decisions made during design and the rati
 | D11 | GPU scheduling | Kueue | Volcano, Run:ai | Apache 2.0, Kubernetes SIG, emerging standard. Run:ai is commercial. |
 | D12 | Multi-node training | Documented, v1 single-node | Full InfiniBand support | Demo hardware won't have InfiniBand. Document for production deployments. |
 | D13 | Tenant isolation (API) | kcp workspaces | vCluster, Capsule, Kamaji | kcp gives API isolation at namespace cost. vCluster is overkill when tenants don't need raw K8s. |
-| D14 | Tenant isolation (workload) | Namespace + Cilium NetworkPolicy | Dedicated nodes, runtime sandboxing | Sufficient for v1. gVisor optional for non-GPU. Document stronger options. |
+| D14 | Tenant isolation (workload) | Namespace + Kube-OVN Vpc isolation | Dedicated nodes, runtime sandboxing | Vpc-level dataplane isolation stronger than policy-only. gVisor optional for non-GPU. |
 | D15 | Tenant discovery | Full isolation (no discovery) | Limited directory | kcp workspaces provide this by default. |
-| D16 | Noisy neighbor (v1) | ResourceQuota + whole GPU + Cilium | CPU pinning, NUMA, bandwidth QoS | Sufficient for v1. Advanced protections documented for future. |
+| D16 | Noisy neighbor (v1) | ResourceQuota + whole GPU + Kube-OVN Vpc | CPU pinning, NUMA, bandwidth QoS | Sufficient for v1. Advanced protections documented for future. |
 | D17 | Identity provider | Zitadel | Dex, Keycloak, Kanidm, Authentik | Go, API-first, multi-tenant, Swiss/EU, lightweight. Supports device auth for CLI. |
 | D18 | Onboarding | Free for all + self-service upgrade + admin override | Approval-gated only | Maximizes adoption. Tier-based (free → paid) via billing status. |
 | D19 | Billing units | CPU-hours, memory-GB-hours (4x/hr), GPU-hours | Per-instance, flat fee | Multi-dimensional, extensible. Matches industry standard cloud billing. |
@@ -1368,7 +1360,7 @@ This section records the architectural decisions made during design and the rati
 | D21 | Billing architecture | Self-hosted engine + swappable payment processor | Stripe-native, fully custom | Sovereign billing data. Stripe as default payment processor, swappable. |
 | D22 | Billing engine | OpenMeter | Lago, Flexprice, Kill Bill, custom | Apache 2.0, Go, K8s-native collector, entitlements for quotas, built-in billing. |
 | D23 | Storage | Rook-Ceph (block + object) | Longhorn + MinIO, OpenEBS | Unified system. CNCF Graduated. Single operator for block + object. |
-| D24 | CNI + ingress | Cilium (CNI + NetworkPolicy + Gateway API) | Calico + Envoy Gateway, Cilium + Contour | Single component for networking + security + ingress. Fewer moving parts. |
+| D24 | CNI + tenant networks | Kube-OVN (CNI + Vpc/Subnet isolation) | Cilium + Multus + secondary CNI, Calico | Kube-OVN provides both CNI and tenant virtual networks with Vpc isolation, overlapping CIDRs, and OVN dataplane separation in a single component. |
 | D25 | SSH access | CLI tunnel (default) + public IP (opt-in) | Public IP only, bastion host | Secure by default. No public exposure unless requested. |
 | D26 | Observability (v1) | Prometheus + VictoriaMetrics + DCGM + Grafana | Full OTel + Loki + Tempo | Minimal viable stack. Logs and traces deferred to v2. |
 | D27 | Target audience | kcp community + small cloud operators + EU sovereign projects | Single audience | Broad relevance. Tone and depth balanced for all three. |

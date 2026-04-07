@@ -1,11 +1,11 @@
 # Network Operator
 #
 # Reconciles PublicIP resources from KCP tenant workspaces
-# into Cilium LoadBalancer Services on the workload cluster.
+# into MetalLB LoadBalancer Services on the workload cluster.
 #
 # The operator:
 #   1. Watches KCP virtual workspace for tenant PublicIP CRs
-#   2. Creates/updates Cilium LoadBalancer Services in tenant namespace on workload cluster
+#   2. Creates/updates LoadBalancer Services in tenant namespace on workload cluster
 #   3. Updates status back in KCP (phase, URL, endpoints)
 #   4. Emits usage events to OpenMeter for billing
 #

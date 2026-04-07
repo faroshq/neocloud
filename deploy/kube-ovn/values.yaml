@@ -1,0 +1,56 @@
+# =============================================================================
+# Kube-OVN Helm Values
+# =============================================================================
+#
+# Kube-OVN serves as the sole CNI for the platform. It handles:
+#   1. Default cluster pod networking (platform system pods)
+#   2. Tenant virtual networks via Vpc/Subnet CRDs (KubeVirt VMs)
+#
+# Kube-OVN uses OVN (Open Virtual Network) as its control plane and OVS
+# (Open vSwitch) as the dataplane. Each tenant Vpc gets an independent
+# OVN logical router and logical switch with its own Geneve tunnel ID,
+# providing true dataplane isolation.
+#
+# Install with:
+#   helm repo add kube-ovn https://kubeovn.github.io/kube-ovn
+#   helm install kube-ovn kube-ovn/kube-ovn \
+#     --namespace kube-system \
+#     --values deploy/kube-ovn/values.yaml
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Replica count for OVN central components (ovn-central)
+# -----------------------------------------------------------------------------
+# For HA, set to 3 (one per control plane node).
+replicaCount: 3
+
+# -----------------------------------------------------------------------------
+# Network interface
+# -----------------------------------------------------------------------------
+# IFACE: The host network interface Kube-OVN uses for tunnel traffic.
+# This should be the primary interface connected to the cluster network.
+IFACE: "eth0"
+
+# -----------------------------------------------------------------------------
+# Pod and Service CIDRs
+# -----------------------------------------------------------------------------
+# POD_CIDR: The default subnet CIDR for the built-in "ovn-default" subnet.
+# This is used by platform system pods (controllers, operators, etc.).
+# Tenant VMs use separate Vpc/Subnet CRDs with their own CIDRs.
+POD_CIDR: "10.16.0.0/16"
+
+# SVC_CIDR: Must match the Kubernetes service CIDR configured in kubeadm.
+SVC_CIDR: "10.96.0.0/12"
+
+# -----------------------------------------------------------------------------
+# Load balancing
+# -----------------------------------------------------------------------------
+# ENABLE_LB: Enables OVN-based load balancing for Kubernetes Services.
+ENABLE_LB: true
+
+# -----------------------------------------------------------------------------
+# Network Policy support
+# -----------------------------------------------------------------------------
+# ENABLE_NP: Enables standard Kubernetes NetworkPolicy enforcement.
+ENABLE_NP: true

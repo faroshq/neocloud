@@ -19,7 +19,7 @@
 7. [Phase 3: Workload Cluster Provisioning (Cluster API)](#7-phase-3-workload-cluster-provisioning-cluster-api)
 8. [Phase 4: kcp Control Plane](#8-phase-4-kcp-control-plane)
 9. [Phase 5: Identity — Zitadel](#9-phase-5-identity--zitadel)
-10. [Phase 6: Networking — Cilium](#10-phase-6-networking--cilium)
+10. [Phase 6: Networking — Kube-OVN](#10-phase-6-networking--kube-ovn)
 11. [Phase 7: Storage — Rook-Ceph](#11-phase-7-storage--rook-ceph)
 12. [Phase 8: GPU Stack — NVIDIA GPU Operator + Kueue](#12-phase-8-gpu-stack--nvidia-gpu-operator--kueue)
 13. [Phase 9: VM Support — KubeVirt](#13-phase-9-vm-support--kubevirt)
@@ -69,7 +69,7 @@ This document provides production-grade deployment instructions for the sovereig
 | Workload cluster (CAPI) | 1-2 hours | Management cluster |
 | kcp | 2-4 hours | Management cluster |
 | Zitadel | 1-2 hours | kcp, DNS |
-| Cilium | 1 hour | Both clusters |
+| Kube-OVN | 1 hour | Both clusters |
 | Rook-Ceph | 2-4 hours | Workload cluster, dedicated disks |
 | GPU Operator + Kueue | 1-2 hours | Workload cluster, GPU hardware |
 | KubeVirt | 1-2 hours | Workload cluster |
@@ -145,7 +145,7 @@ MANAGEMENT CLUSTER owns:                WORKLOAD CLUSTER owns:
 kcp (server + front-proxy)              Tenant workload pods
 Zitadel (identity)                      KubeVirt VMs
 OpenMeter (server + deps)               GPU jobs
-Prometheus (federation)                 Cilium (CNI + Gateway)
+Prometheus (federation)                 Kube-OVN (CNI + VirtualNet)
 VictoriaMetrics (storage)               NVIDIA GPU Operator
 Grafana (dashboards)                    Kueue (scheduler)
 Platform operators                      Rook-Ceph (storage)
@@ -259,104 +259,72 @@ Provisioning         172.16.20.0/24    172.16.20.1     Ironic-managed
 Cluster              172.16.30.0/24    172.16.30.1     Static
 Storage (Ceph)       172.16.40.0/24    172.16.40.1     Static
 Public               203.0.113.0/24    203.0.113.1     Static
-K8s Pod CIDR         10.244.0.0/16     -               Cilium
+K8s Pod CIDR         10.16.0.0/16      -               Kube-OVN
 K8s Service CIDR     10.96.0.0/12      -               kube-apiserver
 ```
 
-### Cilium Configuration
+### Kube-OVN Configuration
 
-#### Overlay Mode (Default)
+#### Default (Geneve Overlay)
 
 Recommended for initial deployment and environments where underlay routing is not controlled:
 
 ```yaml
-# cilium-values.yaml (overlay mode)
-kubeProxyReplacement: true
-tunnel: vxlan
-gatewayAPI:
-  enabled: true
-hubble:
-  enabled: true
-  relay:
-    enabled: true
-  ui:
-    enabled: true
-ipam:
-  mode: kubernetes
-encryption:
-  enabled: true
-  type: wireguard
+# kube-ovn-values.yaml
+replicaCount: 3
+IFACE: "eth0"
+POD_CIDR: "10.16.0.0/16"
+SVC_CIDR: "10.96.0.0/12"
+ENABLE_LB: true
+ENABLE_NP: true
 ```
 
-#### Native Routing Mode (Production)
+#### Tenant Virtual Network Example
 
-For providers with BGP-capable switches:
-
-```yaml
-# cilium-values.yaml (BGP mode)
-kubeProxyReplacement: true
-tunnel: disabled
-autoDirectNodeRoutes: true
-ipv4NativeRoutingCIDR: 10.244.0.0/16
-gatewayAPI:
-  enabled: true
-bgpControlPlane:
-  enabled: true
-hubble:
-  enabled: true
-  relay:
-    enabled: true
-encryption:
-  enabled: true
-  type: wireguard
-```
-
-BGP peering configuration:
+Each tenant gets a dedicated Vpc and Subnet:
 
 ```yaml
-apiVersion: cilium.io/v2alpha1
-kind: CiliumBGPClusterConfig
+apiVersion: kubeovn.io/v1
+kind: Vpc
 metadata:
-  name: rack-bgp
+  name: tenant-a-vpc
 spec:
-  nodeSelector:
-    matchLabels:
-      rack: rack-1
-  bgpInstances:
-    - name: rack-1-bgp
-      localASN: 65001
-      peers:
-        - name: tor-switch
-          peerASN: 65000
-          peerAddress: 172.16.30.1
-          peerConfigRef:
-            name: default-peer-config
+  namespaces:
+    - tenant-a
+---
+apiVersion: kubeovn.io/v1
+kind: Subnet
+metadata:
+  name: tenant-a-net
+spec:
+  vpc: tenant-a-vpc
+  cidrBlock: 10.0.0.0/24
+  protocol: IPv4
+  namespaces:
+    - tenant-a
 ```
 
 ### Load Balancing (Bare Metal)
 
-Cilium provides L2 and BGP-based load balancing for bare metal (replacing MetalLB):
+Deploy MetalLB alongside Kube-OVN for bare metal LoadBalancer services:
 
 ```yaml
-# L2 announcement for LoadBalancer services
-apiVersion: cilium.io/v2alpha1
-kind: CiliumL2AnnouncementPolicy
+# MetalLB L2 advertisement
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
 metadata:
   name: default
-spec:
-  interfaces:
-    - eth0
-  externalIPs: true
-  loadBalancerIPs: true
-
+  namespace: metallb-system
+---
 # IP pool for LoadBalancer services
-apiVersion: cilium.io/v2alpha1
-kind: CiliumLoadBalancerIPPool
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
 metadata:
   name: public-pool
+  namespace: metallb-system
 spec:
-  blocks:
-    - cidr: 203.0.113.128/25  # Allocatable public IPs
+  addresses:
+    - 203.0.113.128/25  # Allocatable public IPs
 ```
 
 ---
@@ -408,18 +376,18 @@ swapoff -a && sed -i '/swap/d' /etc/fstab
 
 # Bootstrap single-node management cluster
 kubeadm init \
-  --pod-network-cidr=10.244.0.0/16 \
-  --skip-phases=addon/kube-proxy
+  --pod-network-cidr=10.16.0.0/16
 
 mkdir -p ~/.kube && cp /etc/kubernetes/admin.conf ~/.kube/config
 kubectl taint nodes --all node-role.kubernetes.io/control-plane-
 
-# Install Cilium
-helm repo add cilium https://helm.cilium.io/
-helm install cilium cilium/cilium \
+# Install Kube-OVN
+helm repo add kube-ovn https://kubeovn.github.io/kube-ovn
+helm install kube-ovn kube-ovn/kube-ovn \
   --namespace kube-system \
-  --set kubeProxyReplacement=true \
-  --set gatewayAPI.enabled=true
+  --set IFACE=eth0 \
+  --set POD_CIDR=10.16.0.0/16 \
+  --set SVC_CIDR=10.96.0.0/12
 ```
 
 ### 5.2 Deploy Metal3
@@ -897,19 +865,26 @@ After Zitadel is running, configure via admin console at `https://auth.demo.exam
 
 ---
 
-## 10. Phase 6: Networking -- Cilium
+## 10. Phase 6: Networking -- Kube-OVN
 
 ### 10.1 Install on Workload Cluster
 
 ```bash
 export KUBECONFIG=workload-1.kubeconfig
 
-helm install cilium cilium/cilium \
+helm repo add kube-ovn https://kubeovn.github.io/kube-ovn
+helm install kube-ovn kube-ovn/kube-ovn \
   --namespace kube-system \
-  --values cilium-values.yaml
+  --set IFACE=eth0 \
+  --set POD_CIDR=10.16.0.0/16 \
+  --set SVC_CIDR=10.96.0.0/12 \
+  --set ENABLE_LB=true \
+  --set ENABLE_NP=true
 ```
 
 ### 10.2 Configure Gateway API
+
+Deploy a separate Gateway API implementation (e.g., Envoy Gateway):
 
 ```yaml
 # platform-gateway.yaml
@@ -919,7 +894,7 @@ metadata:
   name: platform
   namespace: platform-system
 spec:
-  gatewayClassName: cilium
+  gatewayClassName: envoy   # or nginx, contour
   listeners:
     - name: https
       protocol: HTTPS
@@ -939,35 +914,30 @@ spec:
           from: All
 ```
 
-### 10.3 Default Tenant Network Policies
+### 10.3 Tenant Virtual Network Setup
 
-Applied by the onboarding controller to each tenant namespace:
+The platform controller creates a Kube-OVN Vpc and Subnet per tenant. Tenant KubeVirt VMs connect only to their Vpc — no access to the default pod network.
 
 ```yaml
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
+# Created by onboarding controller for each tenant
+apiVersion: kubeovn.io/v1
+kind: Vpc
 metadata:
-  name: tenant-default-deny
-  namespace: "TENANT_NAMESPACE"
+  name: "TENANT_NAMESPACE-vpc"
 spec:
-  endpointSelector: {}
-  ingress:
-    - fromEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: "TENANT_NAMESPACE"
-    - fromEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: platform-system
-  egress:
-    - toEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: "TENANT_NAMESPACE"
-    - toEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: kube-system
-            k8s-app: kube-dns
-    - toEntities:
-        - world
+  namespaces:
+    - "TENANT_NAMESPACE"
+---
+apiVersion: kubeovn.io/v1
+kind: Subnet
+metadata:
+  name: "TENANT_NAMESPACE-net"
+spec:
+  vpc: "TENANT_NAMESPACE-vpc"
+  cidrBlock: 10.0.0.0/24    # Managed by platform, can overlap across tenants
+  protocol: IPv4
+  namespaces:
+    - "TENANT_NAMESPACE"
 ```
 
 ---
@@ -1325,7 +1295,7 @@ Watches for new kcp users and provisions:
 3. Default ResourceQuota (free tier)
 4. OpenMeter customer + subscription
 5. Kueue LocalQueue on workload cluster
-6. Cilium NetworkPolicy in tenant namespace
+6. Kube-OVN Vpc + Subnet in tenant namespace
 
 ---
 
@@ -1373,7 +1343,7 @@ spec:
     solvers:
       - http01:
           ingress:
-            ingressClassName: cilium
+            ingressClassName: envoy
 EOF
 ```
 
@@ -1394,7 +1364,7 @@ tunnel.demo.example.com        A    <management-public-ip>
 
 ### Checklist
 
-- [ ] Cilium WireGuard encryption enabled (inter-node traffic)
+- [ ] WireGuard encryption enabled (inter-node traffic)
 - [ ] etcd encryption at rest (kcp + workload cluster)
 - [ ] RBAC audit logging on kcp
 - [ ] Pod Security Standards enforced (restricted baseline)
@@ -1478,7 +1448,7 @@ kubectl --kubeconfig=management.kubeconfig \
 
 | Chart | Version | Repository |
 |-------|---------|-----------|
-| cilium | 1.16.x | helm.cilium.io |
+| kube-ovn | 1.13.x | kubeovn.github.io/kube-ovn |
 | kcp-operator | 0.x.x | kcp-dev.github.io/helm-charts |
 | zitadel | 8.x.x | charts.zitadel.com |
 | rook-ceph | 1.15.x | charts.rook.io/release |
@@ -1509,7 +1479,7 @@ kubectl --kubeconfig=management.kubeconfig \
 | Port | Protocol | Component | Purpose |
 |------|----------|-----------|---------|
 | 6443 | TCP | kube-apiserver | K8s API (internal) |
-| 443 | TCP | Cilium Gateway | Tenant HTTPS workloads |
+| 443 | TCP | Ingress Gateway | Tenant HTTPS workloads |
 | 9090 | TCP | Prometheus | Metrics (internal) |
 | 9400 | TCP | DCGM Exporter | GPU metrics (internal) |
 

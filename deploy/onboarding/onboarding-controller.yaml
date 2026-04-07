@@ -9,7 +9,7 @@
 #   4. Sets default ResourceQuota (free tier)
 #   5. Creates OpenMeter customer + subscription (free plan)
 #   6. Creates tenant namespace on workload cluster
-#   7. Applies Cilium NetworkPolicy for tenant isolation
+#   7. Creates Kube-OVN Vpc + Subnet for tenant virtual network isolation
 #   8. Creates Kueue LocalQueue for the tenant
 #
 apiVersion: apps/v1

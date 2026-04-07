@@ -51,7 +51,7 @@ This document provides a practical, step-by-step guide to deploying the sovereig
 | KubeVirt (VMs) | Optional | Yes |
 | Rook-Ceph (storage) | No (local storage) | Yes |
 | Metal3 (bare metal) | No (pre-provisioned) | Yes |
-| Cilium | Yes | Yes |
+| Kube-OVN | Yes | Yes |
 | Prometheus + Grafana | Yes | Yes |
 | Web console | Basic | Full |
 | Custom CLI | Basic | Full |
@@ -198,7 +198,7 @@ For a compelling live demo, we recommend **Option A (Cherry Servers)** with 3 CP
 │  ├── Prometheus + VictoriaMetrics + Grafana                  │
 │  ├── Platform operators (compute, vm, notebook, etc.)        │
 │  ├── cert-manager                                            │
-│  └── Cilium                                                  │
+│  └── Kube-OVN                                                │
 │                                                               │
 │  Estimated resource usage: ~20GB RAM, 6 CPU cores            │
 └──────────────────────────────────────────────────────────────┘
@@ -209,7 +209,7 @@ For a compelling live demo, we recommend **Option A (Cherry Servers)** with 3 CP
 │                                                               │
 │  Components:                                                  │
 │  ├── Kubernetes control plane (kubeadm, single-node CP)      │
-│  ├── Cilium                                                  │
+│  ├── Kube-OVN                                                │
 │  ├── OpenMeter K8s collector                                 │
 │  ├── local-path-provisioner (storage)                        │
 │  └── Tenant workloads (pods, services)                       │
@@ -221,7 +221,7 @@ For a compelling live demo, we recommend **Option A (Cherry Servers)** with 3 CP
 │                                                               │
 │  Components:                                                  │
 │  ├── Kubernetes worker node                                  │
-│  ├── Cilium                                                  │
+│  ├── Kube-OVN                                                │
 │  ├── OpenMeter K8s collector                                 │
 │  ├── local-path-provisioner (storage)                        │
 │  └── Tenant workloads (pods, services)                       │
@@ -235,7 +235,7 @@ All servers on same Cherry Servers VLAN (flat L2)
 
 Management cluster:  10.0.1.0/24
 Workload cluster:    10.0.2.0/24
-Pod CIDR:            10.244.0.0/16 (Cilium overlay)
+Pod CIDR:            10.16.0.0/16 (Kube-OVN overlay)
 Service CIDR:        10.96.0.0/12
 
 DNS: *.demo.example.com → management server public IP
@@ -322,8 +322,7 @@ sysctl --system
 ```bash
 # On Server 1: Initialize management cluster
 kubeadm init \
-  --pod-network-cidr=10.244.0.0/16 \
-  --skip-phases=addon/kube-proxy  # Cilium replaces kube-proxy
+  --pod-network-cidr=10.16.0.0/16
 
 # Save kubeconfig
 mkdir -p ~/.kube
@@ -332,12 +331,13 @@ cp /etc/kubernetes/admin.conf ~/.kube/config
 # Allow scheduling on control plane (single-node management)
 kubectl taint nodes --all node-role.kubernetes.io/control-plane-
 
-# Install Cilium (replaces kube-proxy)
-helm repo add cilium https://helm.cilium.io/
-helm install cilium cilium/cilium \
+# Install Kube-OVN
+helm repo add kube-ovn https://kubeovn.github.io/kube-ovn
+helm install kube-ovn kube-ovn/kube-ovn \
   --namespace kube-system \
-  --set kubeProxyReplacement=true \
-  --set gatewayAPI.enabled=true
+  --set IFACE=eth0 \
+  --set POD_CIDR=10.16.0.0/16 \
+  --set SVC_CIDR=10.96.0.0/12
 ```
 
 ### Workload Cluster
@@ -345,19 +345,19 @@ helm install cilium cilium/cilium \
 ```bash
 # On Server 2: Initialize workload cluster control plane
 kubeadm init \
-  --pod-network-cidr=10.244.0.0/16 \
-  --skip-phases=addon/kube-proxy
+  --pod-network-cidr=10.16.0.0/16
 
 # Save kubeconfig (copy to management server as workload.kubeconfig)
 
 # Allow scheduling on control plane
 kubectl taint nodes --all node-role.kubernetes.io/control-plane-
 
-# Install Cilium
-helm install cilium cilium/cilium \
+# Install Kube-OVN
+helm install kube-ovn kube-ovn/kube-ovn \
   --namespace kube-system \
-  --set kubeProxyReplacement=true \
-  --set gatewayAPI.enabled=true
+  --set IFACE=eth0 \
+  --set POD_CIDR=10.16.0.0/16 \
+  --set SVC_CIDR=10.96.0.0/12
 
 # On Server 3: Join workload cluster
 kubeadm join <server-2-ip>:6443 --token <token> --discovery-token-ca-cert-hash <hash>
@@ -379,11 +379,11 @@ kubectl patch storageclass local-path \
 ```bash
 # Management cluster
 kubectl get nodes  # 1 node, Ready
-kubectl get pods -A  # Cilium running
+kubectl get pods -A  # Kube-OVN running
 
 # Workload cluster (using workload.kubeconfig)
 kubectl --kubeconfig=workload.kubeconfig get nodes  # 2 nodes, Ready
-kubectl --kubeconfig=workload.kubeconfig get pods -A  # Cilium running
+kubectl --kubeconfig=workload.kubeconfig get pods -A  # Kube-OVN running
 ```
 
 ---
@@ -903,7 +903,7 @@ Complete walkthrough for technical audience.
 2. kcp workspace creation and APIBinding
 3. Operator reconciliation loop (show virtual workspace)
 4. Workload appearing on backend cluster
-5. Network isolation (show Cilium policies)
+5. Network isolation (show Kube-OVN Vpc isolation)
 6. Metering pipeline (collector → OpenMeter → invoice)
 7. Billing flow (usage → Stripe test invoice)
 8. Quota enforcement
@@ -922,8 +922,8 @@ Complete walkthrough for technical audience.
 | Workload not created on backend | Operator not running or no workload kubeconfig | Check operator logs, verify secret exists |
 | Metering shows zero usage | OpenMeter collector not deployed on workload cluster | Deploy collector DaemonSet |
 | Quota not enforced | Admission webhook not registered | Check `ValidatingWebhookConfiguration` exists |
-| Cilium pods crashlooping | Kernel version too old | Ensure kernel 5.4+ on all nodes |
-| Gateway API not working | Cilium Gateway API not enabled | Reinstall Cilium with `--set gatewayAPI.enabled=true` |
+| Kube-OVN pods crashlooping | Kernel version too old or OVS issue | Ensure kernel 5.4+ on all nodes, check OVS logs |
+| Gateway API not working | Ingress controller not deployed | Deploy Envoy Gateway or Nginx Gateway Fabric |
 
 ### Debug Commands
 
@@ -935,7 +935,7 @@ kubectl get apibindings -A               # All bindings
 
 # Workload cluster
 kubectl --kubeconfig=workload.kubeconfig get pods -A  # All workloads
-kubectl --kubeconfig=workload.kubeconfig get ciliumnetworkpolicies -A
+kubectl --kubeconfig=workload.kubeconfig get vpcs,subnets -A
 
 # OpenMeter
 curl -s http://openmeter:8888/api/v1/meters | jq  # List meters

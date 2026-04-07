@@ -21,7 +21,7 @@
 #
 # Prerequisites:
 #   - cert-manager installed in the cluster
-#   - Cilium configured as the ingress controller (or update solver class)
+#   - Ingress controller deployed (e.g., Envoy Gateway, Nginx Gateway Fabric)
 # =============================================================================
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -49,6 +49,6 @@ spec:
     solvers:
       - http01:
           ingress:
-            # Use Cilium as the ingress class for solving HTTP-01 challenges
-            # Change this if using a different ingress controller (e.g., nginx, traefik)
-            ingressClassName: cilium
+            # Ingress class for solving HTTP-01 challenges
+            # Update to match your ingress controller (e.g., envoy, nginx, traefik)
+            ingressClassName: envoy

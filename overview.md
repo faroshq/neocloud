@@ -78,7 +78,7 @@ Tenants see **cloud APIs** (Compute, VM, Notebook, GPU). They never see pods, no
 |                                                            |
 |   Workload Cluster(s):                                     |
 |   +- Kubernetes (kubeadm/k3s)                              |
-|   +- Cilium (networking + isolation)                       |
+|   +- Kube-OVN (networking + tenant isolation)                       |
 |   +- NVIDIA GPU Operator (if GPUs present)                 |
 |   +- Storage (Rook-Ceph for production, local for demo)    |
 |   +- KubeVirt (if VMs needed)                              |
@@ -100,7 +100,7 @@ Component         What it does                          Required?
 ---------         ------------                          ---------
 kcp               Multi-tenant control plane            YES - core
 Kubernetes        Runs workloads                        YES - core
-Cilium            Networking + tenant isolation          YES - core
+Kube-OVN          Networking + tenant virtual networks   YES - core
 OIDC provider     Tenant authentication                 YES - core
 Cloud operator    Reconciles all platform APIs           YES - core
 ```
@@ -222,7 +222,7 @@ Layer 1: API Isolation (kcp)
 
 Layer 2: Workload Isolation (Backend K8s)
   +- Separate namespace per tenant
-  +- Cilium NetworkPolicy (deny cross-tenant traffic)
+  +- Kube-OVN Vpc isolation (dataplane-level tenant separation)
   +- ResourceQuota per namespace
 ```
 
@@ -278,7 +278,7 @@ When you need the full production setup, see `whitepaper.md`. The full stack add
 | Billing | OpenMeter + Stripe | Usage-based billing |
 | Observability | Prometheus + Grafana | Monitoring + dashboards |
 | Long-term Metrics | VictoriaMetrics | Metrics retention (when needed) |
-| Security | gVisor, Cilium encryption | Runtime sandboxing, encryption |
+| Security | gVisor, WireGuard encryption | Runtime sandboxing, encryption |
 | Backup | Velero + etcd snapshots | Disaster recovery |
 
 Each component is independent and can be added incrementally.
@@ -291,7 +291,7 @@ Every component is open source:
 
 | License | Components |
 |---------|-----------|
-| **Apache 2.0** | kcp, Kubernetes, Cilium, Metal3, Flatcar, Rook-Ceph, OpenMeter, Kueue, KubeVirt, Prometheus, gVisor, Cluster API, cert-manager, GPU Operator |
+| **Apache 2.0** | kcp, Kubernetes, Kube-OVN, Metal3, Flatcar, Rook-Ceph, OpenMeter, Kueue, KubeVirt, Prometheus, gVisor, Cluster API, cert-manager, GPU Operator |
 | **AGPL-3.0** | Zitadel (server), Grafana — deployed unmodified, no copyleft impact |
 
 No BSL, SSPL, or proprietary licenses. No commercial components required.
@@ -304,7 +304,7 @@ No BSL, SSPL, or proprietary licenses. No commercial components required.
 
 | Document | Layer | What it covers |
 |----------|-------|---------------|
-| **01-infrastructure.md** | Layer 1 | Bare metal → K8s (Metal3, Flatcar, Cilium, Ceph, GPU, KubeVirt) |
+| **01-infrastructure.md** | Layer 1 | Bare metal → K8s (Metal3, Flatcar, Kube-OVN, Ceph, GPU, KubeVirt) |
 | **02-platform.md** | Layer 2 | Multi-tenant cloud APIs (kcp, Identity, Cloud Operator, CLI, Console) — **demo lives here** |
 | **03-production.md** | Layer 3 | Productionization (billing, metering, monitoring, backup, day-2 ops) |
 
@@ -325,7 +325,7 @@ No BSL, SSPL, or proprietary licenses. No commercial components required.
 
 1. Get 3 Linux servers (bare metal, VMs, or cloud instances)
 2. Install Kubernetes (kubeadm or k3s)
-3. Install Cilium
+3. Install Kube-OVN
 4. Install kcp
 5. Deploy the cloud operator
 6. Create a tenant workspace

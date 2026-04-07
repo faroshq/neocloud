@@ -89,7 +89,7 @@ All of these are provided by Layer 1.
     |  | services | | GPU jobs | | services |               |
     |  +----------+ +----------+ +----------+               |
     |                                                       |
-    |  Cilium (CNI + NetworkPolicy + Gateway API)           |
+    |  Kube-OVN (CNI + Vpc/Subnet tenant isolation)         |
     |  NVIDIA GPU Operator . KubeVirt                       |
     +-------------------------------------------------------+
 ```
@@ -279,7 +279,7 @@ Isolation operates at two levels:
 **Workload Layer (backend cluster):**
 
 - Each tenant gets a namespace on the workload cluster (operator-managed)
-- Cilium NetworkPolicy enforces default-deny cross-tenant traffic
+- Kube-OVN Vpc isolation provides dataplane-level tenant separation
 - ResourceQuota per namespace prevents resource exhaustion
 - gVisor RuntimeClass for non-GPU workloads (optional, stronger isolation)
 - Whole GPU allocation (no sharing in v1)
@@ -288,7 +288,7 @@ Tenants never interact with the workload layer directly. They only see their kcp
 
 ### Tenant Network Isolation
 
-Each tenant namespace gets default-deny Cilium NetworkPolicies that restrict ingress and egress to same-namespace traffic only (plus DNS and internet egress). This ensures tenant workloads cannot reach each other at the network level, even though they share the same physical cluster.
+Each tenant gets a dedicated Kube-OVN Vpc (virtual private cloud) with its own OVN logical router and subnet. Tenant KubeVirt VMs connect only to their Vpc's network — there is no route between Vpcs unless explicitly configured. This provides true dataplane-level isolation, not just policy-based filtering. Overlapping IP ranges across tenants are fully supported.
 
 ### Resource Limits (No Billing in This Layer)
 
