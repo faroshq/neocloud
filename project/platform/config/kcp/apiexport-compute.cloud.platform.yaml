@@ -3,6 +3,15 @@ kind: APIExport
 metadata:
   name: compute.cloud.platform
 spec:
+  permissionClaims:
+  - group: ""
+    resource: secrets
+    verbs:
+    - get
+    - list
+    - create
+    - update
+    - delete
   resources:
   - group: compute.cloud.platform
     name: cloudinits
@@ -36,7 +45,7 @@ spec:
           name: publicimages
   - group: compute.cloud.platform
     name: virtualmachines
-    schema: v260407-7c8435a.virtualmachines.compute.cloud.platform
+    schema: v260407-b609c31.virtualmachines.compute.cloud.platform
     storage:
       crd: {}
 status: {}

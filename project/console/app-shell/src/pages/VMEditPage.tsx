@@ -11,6 +11,8 @@ import {
   Chip,
   ToggleButtonGroup,
   ToggleButton,
+  FormControlLabel,
+  Checkbox,
   alpha,
 } from '@mui/material';
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded';
@@ -81,6 +83,7 @@ export const VMEditPage: React.FC = () => {
   const [diskImage, setDiskImage] = React.useState(OS_IMAGES[0].id);
   const [gpuCount, setGpuCount] = React.useState(0);
   const [sshPublicKey, setSshPublicKey] = React.useState('');
+  const [enableRootLogin, setEnableRootLogin] = React.useState(false);
   const [cloudInitSource, setCloudInitSource] = React.useState<CloudInitSourceType>('auto');
   const [selectedPublicCloudInit, setSelectedPublicCloudInit] = React.useState('');
   const [selectedCloudInit, setSelectedCloudInit] = React.useState('');
@@ -114,6 +117,7 @@ export const VMEditPage: React.FC = () => {
         setDiskImage((disk.image as string) || OS_IMAGES[0].id);
         setGpuCount((gpu.count as number) || 0);
         setSshPublicKey((ssh.publicKey as string) || '');
+        setEnableRootLogin(!!(ssh.enableRootLogin));
         // Restore cloud-init source type from existing spec.
         if (ci.publicCloudInit) {
           setCloudInitSource('publicCloudInit');
@@ -157,7 +161,12 @@ export const VMEditPage: React.FC = () => {
           memory,
           disk: { size: diskSize, image: diskImage },
           ...(gpuCount > 0 && { gpu: { count: gpuCount } }),
-          ...(sshPublicKey && { ssh: { publicKey: sshPublicKey } }),
+          ...((sshPublicKey || enableRootLogin) && {
+            ssh: {
+              ...(sshPublicKey && { publicKey: sshPublicKey }),
+              ...(enableRootLogin && { enableRootLogin: true }),
+            },
+          }),
           ...(cloudInitRef && { cloudInit: cloudInitRef }),
         },
       };
@@ -571,7 +580,7 @@ export const VMEditPage: React.FC = () => {
               Optional
             </Typography>
           </Box>
-          <Box sx={{ p: 2.5 }}>
+          <Box sx={{ p: 2.5, display: 'flex', flexDirection: 'column', gap: 2 }}>
             <TextField
               label="SSH Public Key"
               fullWidth
@@ -586,6 +595,25 @@ export const VMEditPage: React.FC = () => {
                   fontSize: '0.8125rem',
                 },
               }}
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={enableRootLogin}
+                  onChange={(e) => setEnableRootLogin(e.target.checked)}
+                  sx={{ color: '#71717a', '&.Mui-checked': { color: '#818cf8' } }}
+                />
+              }
+              label={
+                <Box>
+                  <Typography sx={{ fontSize: '0.8125rem' }}>
+                    Enable root SSH login
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.75rem', color: '#52525b' }}>
+                    A random root password will be generated and stored in a Secret
+                  </Typography>
+                </Box>
+              }
             />
           </Box>
         </Paper>

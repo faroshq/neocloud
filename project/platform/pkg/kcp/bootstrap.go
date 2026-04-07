@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
@@ -270,12 +271,32 @@ func ensureAPIBinding(ctx context.Context, client dynamic.Interface, exportName,
 						"name": exportName,
 					},
 				},
+				"permissionClaims": []interface{}{
+					map[string]interface{}{
+						"group":    "",
+						"resource": "secrets",
+						"state":    "Accepted",
+						"verbs":    []interface{}{"get", "list", "create", "update", "delete"},
+						"selector": map[string]interface{}{
+							"matchAll": true,
+						},
+					},
+				},
 			},
 		},
 	}
 
 	_, err := client.Resource(apiBindingGVR).Create(ctx, binding, metav1.CreateOptions{})
-	if err != nil && !errors.IsAlreadyExists(err) {
+	if errors.IsAlreadyExists(err) {
+		// Ensure permission claims are accepted on the existing binding.
+		patch := []byte(`{"spec":{"permissionClaims":[{"group":"","resource":"secrets","state":"Accepted","verbs":["get","list","create","update","delete"],"selector":{"matchAll":true}}]}}`)
+		_, err = client.Resource(apiBindingGVR).Patch(ctx, bindingName, types.MergePatchType, patch, metav1.PatchOptions{})
+		if err != nil {
+			return fmt.Errorf("patching APIBinding %q permission claims: %w", bindingName, err)
+		}
+		return nil
+	}
+	if err != nil {
 		return fmt.Errorf("creating APIBinding %q: %w", bindingName, err)
 	}
 	return nil

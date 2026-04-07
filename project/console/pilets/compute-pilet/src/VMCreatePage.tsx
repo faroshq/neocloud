@@ -1,7 +1,7 @@
 import * as React from 'react';
 import {
   Box, Typography, Paper, TextField, Button, MenuItem, Alert, ListSubheader, Chip,
-  ToggleButtonGroup, ToggleButton,
+  ToggleButtonGroup, ToggleButton, FormControlLabel, Checkbox,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { vmApi, publicImageApi, publicCloudInitApi, cloudInitApi, K8sResource } from './api';
@@ -72,6 +72,7 @@ export const VMCreatePage: React.FC = () => {
   const [secretNamespace, setSecretNamespace] = React.useState('default');
   const [gpuCount, setGpuCount] = React.useState(0);
   const [sshPublicKey, setSshPublicKey] = React.useState('');
+  const [enableRootLogin, setEnableRootLogin] = React.useState(false);
   const [creating, setCreating] = React.useState(false);
   const [error, setError] = React.useState('');
 
@@ -122,7 +123,12 @@ export const VMCreatePage: React.FC = () => {
           diskSize,
           image,
           ...(gpuCount > 0 && { gpuCount }),
-          ...(sshPublicKey && { sshPublicKey }),
+          ...((sshPublicKey || enableRootLogin) && {
+            ssh: {
+              ...(sshPublicKey && { publicKey: sshPublicKey }),
+              ...(enableRootLogin && { enableRootLogin: true }),
+            },
+          }),
           ...(cloudInitRef && { cloudInit: cloudInitRef }),
         },
       });
@@ -291,9 +297,19 @@ export const VMCreatePage: React.FC = () => {
         )}
 
         <TextField
-          label="SSH Public Key" fullWidth multiline rows={3} sx={{ mb: 3 }}
+          label="SSH Public Key" fullWidth multiline rows={3} sx={{ mb: 2 }}
           value={sshPublicKey} onChange={(e) => setSshPublicKey(e.target.value)}
           placeholder="ssh-ed25519 AAAA..."
+        />
+        <FormControlLabel
+          sx={{ mb: 3 }}
+          control={
+            <Checkbox
+              checked={enableRootLogin}
+              onChange={(e) => setEnableRootLogin(e.target.checked)}
+            />
+          }
+          label="Enable root SSH login (password will be auto-generated)"
         />
         <Button
           variant="contained" fullWidth size="large"

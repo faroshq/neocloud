@@ -1,7 +1,7 @@
 apiVersion: apis.kcp.io/v1alpha1
 kind: APIResourceSchema
 metadata:
-  name: v260407-7c8435a.virtualmachines.compute.cloud.platform
+  name: v260407-b609c31.virtualmachines.compute.cloud.platform
 spec:
   group: compute.cloud.platform
   names:
@@ -118,9 +118,30 @@ spec:
             ssh:
               description: SSH access configuration.
               properties:
+                enableRootLogin:
+                  description: |-
+                    EnableRootLogin enables root SSH login with password authentication.
+                    When enabled, a root password is either read from RootPasswordSecret
+                    or auto-generated and stored in a new Secret (referenced in status.rootPasswordSecret).
+                  type: boolean
                 publicKey:
                   description: SSH public key to inject into the VM.
                   type: string
+                rootPasswordSecret:
+                  description: |-
+                    RootPasswordSecret references a Secret containing the root password in the "password" key.
+                    If EnableRootLogin is true and this is not set, a Secret is auto-generated.
+                  properties:
+                    name:
+                      description: Name of the Secret.
+                      type: string
+                    namespace:
+                      description: Namespace of the Secret.
+                      type: string
+                  required:
+                  - name
+                  - namespace
+                  type: object
               type: object
           required:
           - cores
@@ -229,6 +250,22 @@ spec:
                 - name
                 type: object
               description: RelatedResources lists resources related to this VM.
+              type: object
+            rootPasswordSecret:
+              description: |-
+                RootPasswordSecret references the Secret containing the root password
+                when EnableRootLogin is true. Set automatically if no RootPasswordSecret
+                was provided in spec.ssh.
+              properties:
+                name:
+                  description: Name of the Secret.
+                  type: string
+                namespace:
+                  description: Namespace of the Secret.
+                  type: string
+              required:
+              - name
+              - namespace
               type: object
             sshEndpoint:
               description: SSH endpoint (host:port) when VM is running and SSH is

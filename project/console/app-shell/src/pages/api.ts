@@ -119,4 +119,12 @@ export const publicCloudInitApi = {
 export const cloudInitApi = {
   list: () => k8sList<K8sResource>(`${COMPUTE_API}/cloudinits`),
   get: (name: string) => k8sGet<K8sResource>(`${COMPUTE_API}/cloudinits/${name}`),
+  create: (resource: unknown) => k8sCreate<K8sResource>(`${COMPUTE_API}/cloudinits`, resource),
+  update: (name: string, resource: unknown) => k8sUpdate<K8sResource>(`${COMPUTE_API}/cloudinits/${name}`, resource),
+  delete: (name: string) => k8sDelete(`${COMPUTE_API}/cloudinits/${name}`),
+};
+
+export const secretApi = {
+  get: (namespace: string, name: string) =>
+    k8sGet<K8sResource>(`/api/v1/namespaces/${namespace}/secrets/${name}`),
 };

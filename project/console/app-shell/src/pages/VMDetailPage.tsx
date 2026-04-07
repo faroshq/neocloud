@@ -22,7 +22,8 @@ import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import { useParams, useNavigate } from 'react-router-dom';
-import { vmApi, type K8sResource } from './api';
+import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
+import { vmApi, secretApi, type K8sResource } from './api';
 import { keyframes } from '@emotion/react';
 
 const pulse = keyframes`
@@ -36,6 +37,101 @@ const statusConfig: Record<string, { color: string; animate: boolean }> = {
   Pending: { color: '#fbbf24', animate: true },
   Failed: { color: '#f87171', animate: false },
   Stopped: { color: '#52525b', animate: false },
+};
+
+const RootPasswordCopy: React.FC<{ status: Record<string, unknown> }> = ({ status }) => {
+  const [password, setPassword] = React.useState<string | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+  const [error, setError] = React.useState('');
+
+  const rootPwSecret = status.rootPasswordSecret as Record<string, string> | undefined;
+
+  const handleCopy = async () => {
+    if (password) {
+      await navigator.clipboard.writeText(password);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      return;
+    }
+    if (!rootPwSecret?.name || !rootPwSecret?.namespace) {
+      setError('No root password Secret found in VM status');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const secret = await secretApi.get(rootPwSecret.namespace, rootPwSecret.name) as unknown as Record<string, unknown>;
+      const data = (secret['data'] || {}) as Record<string, string>;
+      const stringData = (secret['stringData'] || {}) as Record<string, string>;
+      const pw = stringData?.password || (data?.password ? atob(data.password) : '');
+      if (!pw) {
+        setError('Secret does not contain a "password" key');
+        return;
+      }
+      setPassword(pw);
+      await navigator.clipboard.writeText(pw);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to fetch Secret');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!rootPwSecret) {
+    return (
+      <Typography sx={{ fontSize: '0.8125rem', color: '#71717a' }}>
+        Root password Secret not yet created (VM may still be provisioning)
+      </Typography>
+    );
+  }
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Typography sx={{ fontSize: '0.8125rem', color: '#a1a1aa' }}>
+          Secret: <span style={{ fontFamily: 'monospace' }}>{rootPwSecret.namespace}/{rootPwSecret.name}</span>
+        </Typography>
+      </Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Button
+          size="small"
+          variant="outlined"
+          startIcon={<ContentCopyRoundedIcon sx={{ fontSize: 14 }} />}
+          onClick={handleCopy}
+          disabled={loading}
+          sx={{
+            fontSize: '0.75rem',
+            textTransform: 'none',
+            borderColor: copied ? alpha('#22c55e', 0.4) : 'rgba(255,255,255,0.12)',
+            color: copied ? '#22c55e' : '#a1a1aa',
+            '&:hover': { borderColor: alpha('#818cf8', 0.4), color: '#818cf8' },
+          }}
+        >
+          {loading ? 'Fetching...' : copied ? 'Copied!' : 'Copy Root Password'}
+        </Button>
+        {password && (
+          <Typography
+            sx={{
+              fontSize: '0.75rem',
+              fontFamily: 'monospace',
+              color: '#52525b',
+              userSelect: 'all',
+            }}
+          >
+            {password}
+          </Typography>
+        )}
+      </Box>
+      {error && (
+        <Typography sx={{ fontSize: '0.75rem', color: '#f87171' }}>
+          {error}
+        </Typography>
+      )}
+    </Box>
+  );
 };
 
 export const VMDetailPage: React.FC = () => {
@@ -266,8 +362,30 @@ export const VMDetailPage: React.FC = () => {
             {ssh.publicKey ? (
               <InfoRow label="SSH Key" value="Configured" />
             ) : null}
+            <InfoRow label="Root SSH Login" value={ssh.enableRootLogin ? 'Enabled' : 'Disabled'} />
           </Box>
         </Paper>
+
+        {/* Authentication / Root Password */}
+        {!!ssh.enableRootLogin && (
+          <Paper sx={{ p: 0, overflow: 'hidden' }}>
+            <Box
+              sx={{
+                px: 2.5,
+                py: 1.5,
+                borderBottom: '1px solid rgba(255,255,255,0.06)',
+                bgcolor: 'rgba(255,255,255,0.02)',
+              }}
+            >
+              <Typography sx={{ fontSize: '0.8125rem', fontWeight: 600 }}>
+                Root Password
+              </Typography>
+            </Box>
+            <Box sx={{ p: 2.5 }}>
+              <RootPasswordCopy status={status} />
+            </Box>
+          </Paper>
+        )}
 
         <Paper sx={{ p: 0, overflow: 'hidden' }}>
           <Box

@@ -11,6 +11,8 @@ import {
   Chip,
   ToggleButtonGroup,
   ToggleButton,
+  FormControlLabel,
+  Checkbox,
   alpha,
 } from '@mui/material';
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded';
@@ -112,6 +114,7 @@ export const VMCreatePage: React.FC = () => {
   const [secretNamespace, setSecretNamespace] = React.useState('default');
   const [gpuCount, setGpuCount] = React.useState(0);
   const [sshPublicKey, setSshPublicKey] = React.useState('');
+  const [enableRootLogin, setEnableRootLogin] = React.useState(false);
   const [creating, setCreating] = React.useState(false);
   const [error, setError] = React.useState('');
 
@@ -161,7 +164,12 @@ export const VMCreatePage: React.FC = () => {
           memory,
           disk: { size: diskSize, image: diskImage },
           ...(gpuCount > 0 && { gpu: { count: gpuCount } }),
-          ...(sshPublicKey && { ssh: { publicKey: sshPublicKey } }),
+          ...((sshPublicKey || enableRootLogin) && {
+            ssh: {
+              ...(sshPublicKey && { publicKey: sshPublicKey }),
+              ...(enableRootLogin && { enableRootLogin: true }),
+            },
+          }),
           ...(cloudInitRef && { cloudInit: cloudInitRef }),
         },
       });
@@ -541,7 +549,7 @@ export const VMCreatePage: React.FC = () => {
               Optional
             </Typography>
           </Box>
-          <Box sx={{ p: 2.5 }}>
+          <Box sx={{ p: 2.5, display: 'flex', flexDirection: 'column', gap: 2 }}>
             <TextField
               label="SSH Public Key"
               fullWidth
@@ -556,6 +564,25 @@ export const VMCreatePage: React.FC = () => {
                   fontSize: '0.8125rem',
                 },
               }}
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={enableRootLogin}
+                  onChange={(e) => setEnableRootLogin(e.target.checked)}
+                  sx={{ color: '#71717a', '&.Mui-checked': { color: '#818cf8' } }}
+                />
+              }
+              label={
+                <Box>
+                  <Typography sx={{ fontSize: '0.8125rem' }}>
+                    Enable root SSH login
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.75rem', color: '#52525b' }}>
+                    A random root password will be generated and stored in a Secret
+                  </Typography>
+                </Box>
+              }
             />
           </Box>
         </Paper>

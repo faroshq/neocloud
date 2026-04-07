@@ -105,6 +105,17 @@ type VirtualMachineSSH struct {
 	// SSH public key to inject into the VM.
 	// +optional
 	PublicKey string `json:"publicKey,omitempty"`
+
+	// EnableRootLogin enables root SSH login with password authentication.
+	// When enabled, a root password is either read from RootPasswordSecret
+	// or auto-generated and stored in a new Secret (referenced in status.rootPasswordSecret).
+	// +optional
+	EnableRootLogin bool `json:"enableRootLogin,omitempty"`
+
+	// RootPasswordSecret references a Secret containing the root password in the "password" key.
+	// If EnableRootLogin is true and this is not set, a Secret is auto-generated.
+	// +optional
+	RootPasswordSecret *SecretReference `json:"rootPasswordSecret,omitempty"`
 }
 
 // VirtualMachinePhase represents the lifecycle phase of a VirtualMachine.
@@ -114,6 +125,7 @@ const (
 	VirtualMachinePending      VirtualMachinePhase = "Pending"
 	VirtualMachineProvisioning VirtualMachinePhase = "Provisioning"
 	VirtualMachineRunning      VirtualMachinePhase = "Running"
+	VirtualMachineTerminating  VirtualMachinePhase = "Terminating"
 	VirtualMachineStopped      VirtualMachinePhase = "Stopped"
 	VirtualMachineFailed       VirtualMachinePhase = "Failed"
 )
@@ -139,6 +151,12 @@ type VirtualMachineStatus struct {
 	// Human-readable message about the current phase.
 	// +optional
 	Message string `json:"message,omitempty"`
+
+	// RootPasswordSecret references the Secret containing the root password
+	// on the workload cluster when EnableRootLogin is true. Set automatically
+	// if no RootPasswordSecret was provided in spec.ssh.
+	// +optional
+	RootPasswordSecret *SecretReference `json:"rootPasswordSecret,omitempty"`
 
 	// conditions represent the current state of the VirtualMachine resource.
 	// +listType=map

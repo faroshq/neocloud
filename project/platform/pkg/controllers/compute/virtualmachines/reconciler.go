@@ -19,6 +19,8 @@ package virtualmachines
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"text/template"
@@ -192,6 +194,28 @@ func (r *Reconciler) handleDeletion(ctx context.Context, c client.Client, vm *co
 			if delErr != nil && !apierrors.IsNotFound(delErr) {
 				logger.Error(delErr, "Failed to delete KubeVirt VM")
 			}
+
+			// Update status to reflect termination in progress.
+			if vm.Status.Phase != computev1alpha1.VirtualMachineTerminating {
+				vm.Status.Phase = computev1alpha1.VirtualMachineTerminating
+				vm.Status.Message = "VirtualMachine is being terminated"
+				setCondition(&vm.Status.Conditions, metav1.Condition{
+					Type:               commonv1alpha1.ConditionAvailable,
+					Status:             metav1.ConditionFalse,
+					Reason:             "Terminating",
+					Message:            "VirtualMachine is being deleted",
+					LastTransitionTime: metav1.Now(),
+				})
+				setCondition(&vm.Status.Conditions, metav1.Condition{
+					Type:               commonv1alpha1.ConditionProgessing,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Terminating",
+					Message:            "Waiting for VirtualMachine resources to be cleaned up",
+					LastTransitionTime: metav1.Now(),
+				})
+				_ = c.Status().Update(ctx, vm)
+			}
+
 			logger.Info("Waiting for KubeVirt VM to be fully deleted", "kubevirtName", kvName)
 			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 		} else if !apierrors.IsNotFound(err) {
@@ -216,6 +240,15 @@ func (r *Reconciler) handlePending(ctx context.Context, c client.Client, vm *com
 	kvName := kubevirtVMName(vm)
 
 	if r.workloadClient != nil {
+		// Resolve root password if EnableRootLogin is set.
+		if err := resolveRootPassword(ctx, c, vm, logger); err != nil {
+			logger.Error(err, "Failed to resolve root password")
+			vm.Status.Phase = computev1alpha1.VirtualMachineFailed
+			vm.Status.Message = fmt.Sprintf("Failed to resolve root password: %v", err)
+			_ = c.Status().Update(ctx, vm)
+			return ctrl.Result{}, err
+		}
+
 		// Resolve cloud-init user-data from the reference (or default).
 		userData, err := resolveCloudInitUserData(ctx, c, vm, kvName)
 		if err != nil {
@@ -234,7 +267,7 @@ func (r *Reconciler) handlePending(ctx context.Context, c client.Client, vm *com
 		if err != nil {
 			logger.Error(err, "Failed to create KubeVirt VM")
 			vm.Status.Phase = computev1alpha1.VirtualMachineFailed
-			vm.Status.Message = fmt.Sprintf("Failed to create KubeVirt VM: %v", err)
+			vm.Status.Message = fmt.Sprintf("Failed to create VirtualMachine: %v", err)
 			_ = c.Status().Update(ctx, vm)
 			return ctrl.Result{}, err
 		}
@@ -243,12 +276,12 @@ func (r *Reconciler) handlePending(ctx context.Context, c client.Client, vm *com
 	}
 
 	vm.Status.Phase = computev1alpha1.VirtualMachineProvisioning
-	vm.Status.Message = "KubeVirt VM created, waiting for scheduling"
+	vm.Status.Message = "VirtualMachine created, waiting for scheduling"
 	setCondition(&vm.Status.Conditions, metav1.Condition{
 		Type:               commonv1alpha1.ConditionProgessing,
 		Status:             metav1.ConditionTrue,
 		Reason:             "VMCreated",
-		Message:            "KubeVirt VirtualMachine created on workload cluster",
+		Message:            "VirtualMachine created, provisioning in progress",
 		LastTransitionTime: metav1.Now(),
 	})
 
@@ -304,12 +337,12 @@ func (r *Reconciler) handleProvisioning(ctx context.Context, c client.Client, vm
 		if apierrors.IsNotFound(err) {
 			logger.Info("KubeVirt VM disappeared during provisioning, marking as Failed", "kubevirtName", kvName)
 			vm.Status.Phase = computev1alpha1.VirtualMachineFailed
-			vm.Status.Message = "KubeVirt VM disappeared during provisioning"
+			vm.Status.Message = "VirtualMachine disappeared during provisioning"
 			setCondition(&vm.Status.Conditions, metav1.Condition{
 				Type:               commonv1alpha1.ConditionProgessing,
 				Status:             metav1.ConditionFalse,
 				Reason:             "VMDisappeared",
-				Message:            "KubeVirt VirtualMachine no longer exists on workload cluster",
+				Message:            "VirtualMachine no longer exists",
 				LastTransitionTime: metav1.Now(),
 			})
 			if err := c.Status().Update(ctx, vm); err != nil {
@@ -366,7 +399,7 @@ func (r *Reconciler) handleProvisioning(ctx context.Context, c client.Client, vm
 		Type:               commonv1alpha1.ConditionAvailable,
 		Status:             metav1.ConditionTrue,
 		Reason:             "VMIRunning",
-		Message:            "KubeVirt VirtualMachineInstance is running",
+		Message:            "VirtualMachine instance is running",
 		LastTransitionTime: metav1.Now(),
 	})
 	setCondition(&vm.Status.Conditions, metav1.Condition{
@@ -396,12 +429,12 @@ func (r *Reconciler) handleRunning(ctx context.Context, c client.Client, vm *com
 	if err != nil {
 		logger.Info("VMI not found for running VM, may have been stopped", "error", err)
 		vm.Status.Phase = computev1alpha1.VirtualMachineFailed
-		vm.Status.Message = "KubeVirt VMI disappeared"
+		vm.Status.Message = "VirtualMachine instance disappeared"
 		setCondition(&vm.Status.Conditions, metav1.Condition{
 			Type:               commonv1alpha1.ConditionAvailable,
 			Status:             metav1.ConditionFalse,
 			Reason:             "VMINotFound",
-			Message:            "KubeVirt VirtualMachineInstance not found",
+			Message:            "VirtualMachine instance not found",
 			LastTransitionTime: metav1.Now(),
 		})
 		_ = c.Status().Update(ctx, vm)
@@ -441,8 +474,119 @@ var cloudInitCategoryMap = map[string]string{
 
 // cloudInitTemplateData holds the variables available in cloud-init templates.
 type cloudInitTemplateData struct {
-	Hostname     string
-	SSHPublicKey string
+	Hostname        string
+	SSHPublicKey    string
+	EnableRootLogin bool
+	RootPassword    string
+}
+
+// generatePassword generates a random password of the given byte length, hex-encoded.
+func generatePassword(n int) (string, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// resolveRootPassword ensures a root password Secret exists when EnableRootLogin is true.
+// If spec.ssh.rootPasswordSecret is set, it reads the password from that Secret.
+// Otherwise, it generates a random password, creates a Secret, and records it in status.
+// The Secret is created in the user's KCP workspace via the multicluster client (requires
+// secrets permission claim on the APIExport).
+func resolveRootPassword(ctx context.Context, c client.Client, vm *computev1alpha1.VirtualMachine, logger klog.Logger) error {
+	if vm.Spec.SSH == nil || !vm.Spec.SSH.EnableRootLogin {
+		return nil
+	}
+
+	// If the user provided a secret reference, just validate it exists.
+	if vm.Spec.SSH.RootPasswordSecret != nil {
+		var secret unstructured.Unstructured
+		secret.SetGroupVersionKind(schema.GroupVersionKind{Version: "v1", Kind: "Secret"})
+		ref := vm.Spec.SSH.RootPasswordSecret
+		if err := c.Get(ctx, client.ObjectKey{Name: ref.Name, Namespace: ref.Namespace}, &secret); err != nil {
+			return fmt.Errorf("getting root password Secret %s/%s: %w", ref.Namespace, ref.Name, err)
+		}
+		// Record in status so it's discoverable.
+		vm.Status.RootPasswordSecret = vm.Spec.SSH.RootPasswordSecret
+		return nil
+	}
+
+	// Already generated in a previous reconcile.
+	if vm.Status.RootPasswordSecret != nil {
+		return nil
+	}
+
+	// Generate a random password and create a Secret.
+	password, err := generatePassword(16)
+	if err != nil {
+		return fmt.Errorf("generating root password: %w", err)
+	}
+
+	secretName := fmt.Sprintf("%s-root-password", vm.Name)
+	secretNamespace := "default"
+
+	secret := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "Secret",
+			"metadata": map[string]interface{}{
+				"name":      secretName,
+				"namespace": secretNamespace,
+			},
+			"type": "Opaque",
+			"stringData": map[string]interface{}{
+				"password": password,
+			},
+		},
+	}
+
+	if err := c.Create(ctx, secret); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("creating root password Secret: %w", err)
+		}
+		// Already exists (e.g. from a previous failed reconcile before status was updated).
+		logger.Info("Root password Secret already exists", "name", secretName)
+	} else {
+		logger.Info("Created root password Secret", "name", secretName)
+	}
+
+	vm.Status.RootPasswordSecret = &computev1alpha1.SecretReference{
+		Name:      secretName,
+		Namespace: secretNamespace,
+	}
+
+	return nil
+}
+
+// getRootPassword reads the root password from the Secret referenced in status.
+func getRootPassword(ctx context.Context, c client.Client, vm *computev1alpha1.VirtualMachine) (string, error) {
+	ref := vm.Status.RootPasswordSecret
+	if ref == nil {
+		// Check spec as well.
+		if vm.Spec.SSH != nil && vm.Spec.SSH.RootPasswordSecret != nil {
+			ref = vm.Spec.SSH.RootPasswordSecret
+		}
+	}
+	if ref == nil {
+		return "", nil
+	}
+
+	var secret unstructured.Unstructured
+	secret.SetGroupVersionKind(schema.GroupVersionKind{Version: "v1", Kind: "Secret"})
+	if err := c.Get(ctx, client.ObjectKey{Name: ref.Name, Namespace: ref.Namespace}, &secret); err != nil {
+		return "", fmt.Errorf("getting root password Secret %s/%s: %w", ref.Namespace, ref.Name, err)
+	}
+
+	// Try stringData first (newly created), then data.
+	if pw, ok, _ := unstructured.NestedString(secret.Object, "stringData", "password"); ok && pw != "" {
+		return pw, nil
+	}
+	if pw, ok, _ := unstructured.NestedString(secret.Object, "data", "password"); ok && pw != "" {
+		return pw, nil
+	}
+
+	return "", fmt.Errorf("root password Secret %s/%s does not contain 'password' key", ref.Namespace, ref.Name)
 }
 
 // resolveCloudInitUserData resolves the cloud-init user-data for a VM.
@@ -501,23 +645,31 @@ func resolveCloudInitUserData(ctx context.Context, c client.Client, vm *computev
 
 		var pci computev1alpha1.PublicCloudInit
 		if err := c.Get(ctx, client.ObjectKey{Name: defaultName}, &pci); err != nil {
-			// If default PublicCloudInit not found, use a hardcoded fallback.
-			klog.FromContext(ctx).Info("Default PublicCloudInit not found, using hardcoded fallback", "name", defaultName, "error", err)
-			return buildFallbackUserData(hostname, vm), nil
+			return "", fmt.Errorf("getting default PublicCloudInit %q: %w", defaultName, err)
 		}
 		userDataTemplate = pci.Spec.UserData
 	}
 
-	return renderCloudInitTemplate(userDataTemplate, hostname, vm)
+	return renderCloudInitTemplate(ctx, c, userDataTemplate, hostname, vm)
 }
 
 // renderCloudInitTemplate executes a cloud-init template with VM-specific variables.
-func renderCloudInitTemplate(tmplStr, hostname string, vm *computev1alpha1.VirtualMachine) (string, error) {
+func renderCloudInitTemplate(ctx context.Context, c client.Client, tmplStr, hostname string, vm *computev1alpha1.VirtualMachine) (string, error) {
 	data := cloudInitTemplateData{
 		Hostname: hostname,
 	}
-	if vm.Spec.SSH != nil && vm.Spec.SSH.PublicKey != "" {
+	if vm.Spec.SSH != nil {
 		data.SSHPublicKey = vm.Spec.SSH.PublicKey
+		data.EnableRootLogin = vm.Spec.SSH.EnableRootLogin
+	}
+
+	// Resolve root password from Secret if EnableRootLogin is set.
+	if data.EnableRootLogin {
+		pw, err := getRootPassword(ctx, c, vm)
+		if err != nil {
+			return "", fmt.Errorf("resolving root password: %w", err)
+		}
+		data.RootPassword = pw
 	}
 
 	tmpl, err := template.New("cloudinit").Parse(tmplStr)
@@ -531,20 +683,6 @@ func renderCloudInitTemplate(tmplStr, hostname string, vm *computev1alpha1.Virtu
 	}
 
 	return buf.String(), nil
-}
-
-// buildFallbackUserData generates a hardcoded cloud-init user-data as a last resort.
-func buildFallbackUserData(hostname string, vm *computev1alpha1.VirtualMachine) string {
-	userData := "#cloud-config\nhostname: " + hostname + "\n"
-	userData += "ssh_pwauth: true\n"
-	userData += "disable_root: false\n"
-	userData += "chpasswd:\n  users:\n    - name: root\n      password: platform\n      type: text\n  expire: false\n"
-	userData += "packages:\n  - openssh-server\n"
-	userData += "runcmd:\n  - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config\n  - systemctl enable ssh || systemctl enable sshd || true\n  - systemctl restart ssh || systemctl restart sshd || true\n"
-	if vm.Spec.SSH != nil && vm.Spec.SSH.PublicKey != "" {
-		userData += "ssh_authorized_keys:\n  - " + vm.Spec.SSH.PublicKey + "\n"
-	}
-	return userData
 }
 
 // buildKubeVirtVM constructs an unstructured KubeVirt VirtualMachine object.
