@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"strings"
@@ -578,12 +579,16 @@ func getRootPassword(ctx context.Context, c client.Client, vm *computev1alpha1.V
 		return "", fmt.Errorf("getting root password Secret %s/%s: %w", ref.Namespace, ref.Name, err)
 	}
 
-	// Try stringData first (newly created), then data.
+	// Try stringData first (newly created), then data (base64-encoded by Kubernetes).
 	if pw, ok, _ := unstructured.NestedString(secret.Object, "stringData", "password"); ok && pw != "" {
 		return pw, nil
 	}
 	if pw, ok, _ := unstructured.NestedString(secret.Object, "data", "password"); ok && pw != "" {
-		return pw, nil
+		decoded, err := base64.StdEncoding.DecodeString(pw)
+		if err != nil {
+			return "", fmt.Errorf("decoding base64 password from Secret %s/%s: %w", ref.Namespace, ref.Name, err)
+		}
+		return string(decoded), nil
 	}
 
 	return "", fmt.Errorf("root password Secret %s/%s does not contain 'password' key", ref.Namespace, ref.Name)

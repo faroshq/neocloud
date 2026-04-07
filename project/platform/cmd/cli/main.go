@@ -41,8 +41,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 	"golang.org/x/oauth2"
-	"golang.org/x/term"
-	"k8s.io/client-go/tools/clientcmd"
+"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/klog/v2"
 
@@ -541,32 +540,64 @@ func newSSHCommand() *cobra.Command {
 		hubURL                string
 		insecureSkipTLSVerify bool
 		token                 string
+		username              string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "ssh <vm-name>",
 		Short: "SSH into a virtual machine via the platform proxy",
 		Long: `Opens an interactive SSH session to a VM through the platform's
-WebSocket SSH proxy. Authenticates using a cached OIDC token
+WebSocket SSH proxy. Spawns an OpenSSH client using the built-in
+ssh-proxy as the ProxyCommand. Authenticates using a cached OIDC token
 (from 'platform-cli login') or a static bearer token.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			vmName := args[0]
-			bearerToken, err := resolveToken(cmd.Context(), token, insecureSkipTLSVerify)
+
+			// Find our own binary to use as ProxyCommand.
+			self, err := os.Executable()
 			if err != nil {
-				return err
+				return fmt.Errorf("finding own executable: %w", err)
 			}
-			hubURL, err = resolveHubURL(hubURL)
+
+			// Build the ProxyCommand that calls our ssh-proxy subcommand.
+			proxyCmd := fmt.Sprintf("%s ssh-proxy %s", self, vmName)
+			if hubURL != "" {
+				proxyCmd += fmt.Sprintf(" --hub-url %s", hubURL)
+			}
+			if insecureSkipTLSVerify {
+				proxyCmd += " --insecure-skip-tls-verify"
+			}
+			if token != "" {
+				proxyCmd += fmt.Sprintf(" --token %s", token)
+			}
+
+			// Spawn ssh with our proxy command.
+			sshArgs := []string{
+				"-o", fmt.Sprintf("ProxyCommand=%s", proxyCmd),
+				"-o", "StrictHostKeyChecking=no",
+				"-o", "UserKnownHostsFile=/dev/null",
+				fmt.Sprintf("%s@%s", username, vmName),
+			}
+
+			sshBin, err := exec.LookPath("ssh")
 			if err != nil {
-				return err
+				return fmt.Errorf("ssh not found in PATH: %w", err)
 			}
-			return runSSH(cmd.Context(), hubURL, vmName, bearerToken, insecureSkipTLSVerify, true)
+
+			sshCmd := exec.CommandContext(cmd.Context(), sshBin, sshArgs...)
+			sshCmd.Stdin = os.Stdin
+			sshCmd.Stdout = os.Stdout
+			sshCmd.Stderr = os.Stderr
+
+			return sshCmd.Run()
 		},
 	}
 
 	cmd.Flags().StringVar(&hubURL, "hub-url", "", "Platform hub server URL (defaults to kubeconfig 'platform' context)")
 	cmd.Flags().BoolVar(&insecureSkipTLSVerify, "insecure-skip-tls-verify", false, "Skip TLS certificate verification")
 	cmd.Flags().StringVar(&token, "token", "", "Bearer token (defaults to cached OIDC token)")
+	cmd.Flags().StringVarP(&username, "user", "l", "root", "SSH username")
 
 	return cmd
 }
@@ -600,7 +631,7 @@ Use as an OpenSSH ProxyCommand:
 			if err != nil {
 				return err
 			}
-			return runSSH(cmd.Context(), hubURL, vmName, bearerToken, insecureSkipTLSVerify, false)
+			return runSSHProxy(cmd.Context(), hubURL, vmName, bearerToken, insecureSkipTLSVerify)
 		},
 	}
 
@@ -687,9 +718,9 @@ func resolveHubURL(explicit string) (string, error) {
 	return "", fmt.Errorf("--hub-url is required (no 'platform' context found in kubeconfig)")
 }
 
-// runSSH connects to the platform SSH proxy via WebSocket and bridges it
-// to the terminal (interactive mode) or stdin/stdout (proxy mode).
-func runSSH(ctx context.Context, hubURL, vmName, token string, insecure, interactive bool) error {
+// runSSHProxy connects to the platform SSH proxy via WebSocket and bridges
+// stdin/stdout for use as an OpenSSH ProxyCommand.
+func runSSHProxy(ctx context.Context, hubURL, vmName, token string, insecure bool) error {
 	// Build WebSocket URL.
 	wsURL := strings.Replace(hubURL, "https://", "wss://", 1)
 	wsURL = strings.Replace(wsURL, "http://", "ws://", 1)
@@ -713,18 +744,6 @@ func runSSH(ctx context.Context, hubURL, vmName, token string, insecure, interac
 		return fmt.Errorf("SSH proxy connection failed: %w", err)
 	}
 	defer conn.Close()
-
-	if interactive {
-		// Put terminal in raw mode for interactive SSH.
-		oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-		if err != nil {
-			return fmt.Errorf("setting terminal to raw mode: %w", err)
-		}
-		defer func() {
-			_ = term.Restore(int(os.Stdin.Fd()), oldState)
-			fmt.Println() // Newline after raw mode exit.
-		}()
-	}
 
 	errCh := make(chan error, 2)
 

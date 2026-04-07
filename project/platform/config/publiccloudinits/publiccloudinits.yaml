@@ -8,19 +8,24 @@ spec:
   userData: |
     #cloud-config
     hostname: {{.Hostname}}
+    bootcmd:
+      - sed -i '/\/boot\/efi/s/^/#/' /etc/fstab
+      - systemctl mask boot-efi.mount || true
     packages:
       - openssh-server
     {{- if .EnableRootLogin}}
     ssh_pwauth: true
     disable_root: false
     chpasswd:
-      users:
-        - name: root
-          password: {{.RootPassword}}
-          type: text
+      list: |
+        root:{{.RootPassword}}
       expire: false
+    write_files:
+      - path: /etc/ssh/sshd_config.d/99-permit-root.conf
+        content: |
+          PermitRootLogin yes
+        permissions: '0644'
     runcmd:
-      - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
       - systemctl enable ssh || systemctl enable sshd || true
       - systemctl restart ssh || systemctl restart sshd || true
     {{- end}}
@@ -52,13 +57,15 @@ spec:
     ssh_pwauth: true
     disable_root: false
     chpasswd:
-      users:
-        - name: root
-          password: {{.RootPassword}}
-          type: text
+      list: |
+        root:{{.RootPassword}}
       expire: false
+    write_files:
+      - path: /etc/ssh/sshd_config.d/99-permit-root.conf
+        content: |
+          PermitRootLogin yes
+        permissions: '0644'
     runcmd:
-      - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
       - systemctl enable sshd || true
       - systemctl restart sshd || true
     {{- end}}
@@ -90,13 +97,15 @@ spec:
     ssh_pwauth: true
     disable_root: false
     chpasswd:
-      users:
-        - name: root
-          password: {{.RootPassword}}
-          type: text
+      list: |
+        root:{{.RootPassword}}
       expire: false
+    write_files:
+      - path: /etc/ssh/sshd_config.d/99-permit-root.conf
+        content: |
+          PermitRootLogin yes
+        permissions: '0644'
     runcmd:
-      - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
       - systemctl enable sshd || true
       - systemctl restart sshd || true
     {{- end}}
