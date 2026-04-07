@@ -9,11 +9,13 @@ import {
   MenuItem,
   ListSubheader,
   Chip,
+  ToggleButtonGroup,
+  ToggleButton,
   alpha,
 } from '@mui/material';
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded';
 import { useNavigate } from 'react-router-dom';
-import { vmApi, publicImageApi, K8sResource } from './api';
+import { vmApi, publicImageApi, publicCloudInitApi, cloudInitApi, K8sResource } from './api';
 
 interface OSImage {
   id: string;
@@ -23,12 +25,33 @@ interface OSImage {
   tags: string[];
 }
 
+interface CloudInitTemplate {
+  id: string;
+  displayName: string;
+  description: string;
+  category: string;
+  tags: string[];
+}
+
+type CloudInitSourceType = 'auto' | 'publicCloudInit' | 'cloudInit' | 'secret';
+
 function toOSImage(r: K8sResource): OSImage {
   const spec = r.spec || {};
   return {
     id: r.metadata.name,
     displayName: (spec.displayName as string) || r.metadata.name,
     os: (spec.os as string) || '',
+    category: (spec.category as string) || 'other',
+    tags: (spec.tags as string[]) || [],
+  };
+}
+
+function toCloudInitTemplate(r: K8sResource): CloudInitTemplate {
+  const spec = r.spec || {};
+  return {
+    id: r.metadata.name,
+    displayName: (spec.displayName as string) || r.metadata.name,
+    description: (spec.description as string) || '',
     category: (spec.category as string) || 'other',
     tags: (spec.tags as string[]) || [],
   };
@@ -51,17 +74,42 @@ const TAG_COLORS: Record<string, string> = {
   enterprise: '#6366f1',
   rolling: '#f59e0b',
   testing: '#f59e0b',
+  default: '#818cf8',
+};
+
+const toggleBtnSx = {
+  fontSize: '0.75rem',
+  fontWeight: 600,
+  px: 1.5,
+  py: 0.5,
+  textTransform: 'none' as const,
+  borderColor: 'rgba(255,255,255,0.1)',
+  color: '#71717a',
+  '&.Mui-selected': {
+    bgcolor: alpha('#818cf8', 0.12),
+    color: '#818cf8',
+    borderColor: alpha('#818cf8', 0.3),
+    '&:hover': { bgcolor: alpha('#818cf8', 0.18) },
+  },
 };
 
 export const VMCreatePage: React.FC = () => {
   const navigate = useNavigate();
   const [osImages, setOsImages] = React.useState<OSImage[]>([]);
+  const [publicCloudInits, setPublicCloudInits] = React.useState<CloudInitTemplate[]>([]);
+  const [userCloudInits, setUserCloudInits] = React.useState<CloudInitTemplate[]>([]);
   const [loadingImages, setLoadingImages] = React.useState(true);
+  const [loadingCloudInits, setLoadingCloudInits] = React.useState(true);
   const [name, setName] = React.useState('');
   const [cores, setCores] = React.useState(2);
   const [memory, setMemory] = React.useState('4Gi');
   const [diskSize, setDiskSize] = React.useState('50Gi');
   const [diskImage, setDiskImage] = React.useState('');
+  const [cloudInitSource, setCloudInitSource] = React.useState<CloudInitSourceType>('auto');
+  const [selectedPublicCloudInit, setSelectedPublicCloudInit] = React.useState('');
+  const [selectedCloudInit, setSelectedCloudInit] = React.useState('');
+  const [secretName, setSecretName] = React.useState('');
+  const [secretNamespace, setSecretNamespace] = React.useState('default');
   const [gpuCount, setGpuCount] = React.useState(0);
   const [sshPublicKey, setSshPublicKey] = React.useState('');
   const [creating, setCreating] = React.useState(false);
@@ -75,7 +123,25 @@ export const VMCreatePage: React.FC = () => {
     }).catch((e) => {
       setError(`Failed to load OS images: ${e instanceof Error ? e.message : e}`);
     }).finally(() => setLoadingImages(false));
+
+    Promise.all([
+      publicCloudInitApi.list().then((items) => setPublicCloudInits(items.map(toCloudInitTemplate))).catch(() => {}),
+      cloudInitApi.list().then((items) => setUserCloudInits(items.map(toCloudInitTemplate))).catch(() => {}),
+    ]).finally(() => setLoadingCloudInits(false));
   }, []);
+
+  const buildCloudInitRef = (): Record<string, unknown> | undefined => {
+    switch (cloudInitSource) {
+      case 'publicCloudInit':
+        return selectedPublicCloudInit ? { publicCloudInit: selectedPublicCloudInit } : undefined;
+      case 'cloudInit':
+        return selectedCloudInit ? { cloudInit: selectedCloudInit } : undefined;
+      case 'secret':
+        return secretName ? { secret: { name: secretName, namespace: secretNamespace } } : undefined;
+      default:
+        return undefined;
+    }
+  };
 
   const handleCreate = async () => {
     if (!name) {
@@ -85,6 +151,7 @@ export const VMCreatePage: React.FC = () => {
     setCreating(true);
     setError('');
     try {
+      const cloudInitRef = buildCloudInitRef();
       await vmApi.create({
         apiVersion: 'compute.cloud.platform/v1alpha1',
         kind: 'VirtualMachine',
@@ -95,6 +162,7 @@ export const VMCreatePage: React.FC = () => {
           disk: { size: diskSize, image: diskImage },
           ...(gpuCount > 0 && { gpu: { count: gpuCount } }),
           ...(sshPublicKey && { ssh: { publicKey: sshPublicKey } }),
+          ...(cloudInitRef && { cloudInit: cloudInitRef }),
         },
       });
       navigate('/vm');
@@ -300,6 +368,157 @@ export const VMCreatePage: React.FC = () => {
                 slotProps={{ htmlInput: { min: 0, max: 8 } }}
               />
             </Box>
+          </Box>
+        </Paper>
+
+        {/* Cloud-Init Template */}
+        <Paper sx={{ p: 0, overflow: 'hidden', mb: 2 }}>
+          <Box
+            sx={{
+              px: 2.5,
+              py: 1.5,
+              borderBottom: '1px solid rgba(255,255,255,0.06)',
+              bgcolor: 'rgba(255,255,255,0.02)',
+            }}
+          >
+            <Typography sx={{ fontSize: '0.8125rem', fontWeight: 600 }}>
+              Cloud-Init Template
+            </Typography>
+            <Typography
+              sx={{ fontSize: '0.75rem', color: '#52525b', mt: 0.25 }}
+            >
+              Configure initial VM setup
+            </Typography>
+          </Box>
+          <Box sx={{ p: 2.5 }}>
+            <ToggleButtonGroup
+              value={cloudInitSource}
+              exclusive
+              onChange={(_, v) => v && setCloudInitSource(v as CloudInitSourceType)}
+              size="small"
+              sx={{ mb: 2 }}
+            >
+              <ToggleButton value="auto" sx={toggleBtnSx}>Auto-detect</ToggleButton>
+              <ToggleButton value="publicCloudInit" sx={toggleBtnSx}>Public Template</ToggleButton>
+              <ToggleButton value="cloudInit" sx={toggleBtnSx}>Custom Template</ToggleButton>
+              <ToggleButton value="secret" sx={toggleBtnSx}>Secret</ToggleButton>
+            </ToggleButtonGroup>
+
+            {cloudInitSource === 'auto' && (
+              <Typography sx={{ fontSize: '0.8125rem', color: '#71717a' }}>
+                A default cloud-init template will be selected based on the OS image.
+              </Typography>
+            )}
+
+            {cloudInitSource === 'publicCloudInit' && (
+              <TextField
+                label="Public Cloud-Init Template"
+                select
+                fullWidth
+                value={selectedPublicCloudInit}
+                onChange={(e) => setSelectedPublicCloudInit(e.target.value)}
+                disabled={loadingCloudInits}
+                helperText={loadingCloudInits ? 'Loading templates...' : 'Select a platform-provided cloud-init template'}
+              >
+                {publicCloudInits.map((ci) => (
+                  <MenuItem key={ci.id} value={ci.id} sx={{ py: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
+                      <Box>
+                        <Typography sx={{ fontSize: '0.8125rem' }}>
+                          {ci.displayName}
+                        </Typography>
+                        {ci.description && (
+                          <Typography sx={{ fontSize: '0.6875rem', color: '#71717a' }}>
+                            {ci.description}
+                          </Typography>
+                        )}
+                      </Box>
+                      <Box sx={{ display: 'flex', gap: 0.5, ml: 'auto' }}>
+                        {ci.tags.slice(0, 3).map((tag) => (
+                          <Chip
+                            key={tag}
+                            label={tag}
+                            size="small"
+                            sx={{
+                              height: 18,
+                              fontSize: '0.625rem',
+                              fontWeight: 600,
+                              bgcolor: alpha(TAG_COLORS[tag] || '#71717a', 0.15),
+                              color: TAG_COLORS[tag] || '#a1a1aa',
+                              '& .MuiChip-label': { px: 0.75 },
+                            }}
+                          />
+                        ))}
+                      </Box>
+                    </Box>
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
+
+            {cloudInitSource === 'cloudInit' && (
+              <TextField
+                label="Custom Cloud-Init Template"
+                select={userCloudInits.length > 0}
+                fullWidth
+                value={selectedCloudInit}
+                onChange={(e) => setSelectedCloudInit(e.target.value)}
+                placeholder={userCloudInits.length === 0 ? 'my-cloud-init' : undefined}
+                helperText={
+                  userCloudInits.length > 0
+                    ? 'Select a CloudInit resource from your workspace'
+                    : 'Enter the name of a CloudInit resource in your workspace'
+                }
+              >
+                {userCloudInits.map((ci) => (
+                  <MenuItem key={ci.id} value={ci.id} sx={{ py: 1 }}>
+                    <Box>
+                      <Typography sx={{ fontSize: '0.8125rem' }}>
+                        {ci.displayName || ci.id}
+                      </Typography>
+                      {ci.description && (
+                        <Typography sx={{ fontSize: '0.6875rem', color: '#71717a' }}>
+                          {ci.description}
+                        </Typography>
+                      )}
+                    </Box>
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
+
+            {cloudInitSource === 'secret' && (
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <TextField
+                  label="Secret Name"
+                  fullWidth
+                  value={secretName}
+                  onChange={(e) => setSecretName(e.target.value)}
+                  placeholder="my-cloudinit-secret"
+                  helperText='Secret containing cloud-init user-data in the "userData" key'
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      fontFamily: 'monospace',
+                      fontSize: '0.8125rem',
+                    },
+                  }}
+                />
+                <TextField
+                  label="Namespace"
+                  fullWidth
+                  value={secretNamespace}
+                  onChange={(e) => setSecretNamespace(e.target.value)}
+                  placeholder="default"
+                  sx={{
+                    maxWidth: 200,
+                    '& .MuiOutlinedInput-root': {
+                      fontFamily: 'monospace',
+                      fontSize: '0.8125rem',
+                    },
+                  }}
+                />
+              </Box>
+            )}
           </Box>
         </Paper>
 

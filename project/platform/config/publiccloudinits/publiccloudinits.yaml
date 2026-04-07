@@ -1,0 +1,105 @@
+apiVersion: compute.cloud.platform/v1alpha1
+kind: PublicCloudInit
+metadata:
+  name: debian
+spec:
+  displayName: Debian / Ubuntu Default
+  description: Default cloud-init for Debian-based distributions. Enables SSH root login with password and installs openssh-server.
+  userData: |
+    #cloud-config
+    hostname: {{.Hostname}}
+    ssh_pwauth: true
+    disable_root: false
+    chpasswd:
+      users:
+        - name: root
+          password: platform
+          type: text
+      expire: false
+    packages:
+      - openssh-server
+    runcmd:
+      - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+      - systemctl enable ssh || systemctl enable sshd || true
+      - systemctl restart ssh || systemctl restart sshd || true
+    {{- if .SSHPublicKey}}
+    ssh_authorized_keys:
+      - {{.SSHPublicKey}}
+    {{- end}}
+  os: linux
+  category: debian
+  tags:
+    - debian
+    - ubuntu
+    - debian-based
+    - default
+---
+apiVersion: compute.cloud.platform/v1alpha1
+kind: PublicCloudInit
+metadata:
+  name: redhat
+spec:
+  displayName: Red Hat / Fedora / CentOS Default
+  description: Default cloud-init for Red Hat-based distributions. Enables SSH root login with password and installs openssh-server.
+  userData: |
+    #cloud-config
+    hostname: {{.Hostname}}
+    ssh_pwauth: true
+    disable_root: false
+    chpasswd:
+      users:
+        - name: root
+          password: platform
+          type: text
+      expire: false
+    packages:
+      - openssh-server
+    runcmd:
+      - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+      - systemctl enable sshd || true
+      - systemctl restart sshd || true
+    {{- if .SSHPublicKey}}
+    ssh_authorized_keys:
+      - {{.SSHPublicKey}}
+    {{- end}}
+  os: linux
+  category: redhat
+  tags:
+    - redhat
+    - fedora
+    - centos
+    - rpm-based
+---
+apiVersion: compute.cloud.platform/v1alpha1
+kind: PublicCloudInit
+metadata:
+  name: opensuse
+spec:
+  displayName: openSUSE Default
+  description: Default cloud-init for openSUSE distributions. Enables SSH root login with password and installs openssh-server.
+  userData: |
+    #cloud-config
+    hostname: {{.Hostname}}
+    ssh_pwauth: true
+    disable_root: false
+    chpasswd:
+      users:
+        - name: root
+          password: platform
+          type: text
+      expire: false
+    packages:
+      - openssh-server
+    runcmd:
+      - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+      - systemctl enable sshd || true
+      - systemctl restart sshd || true
+    {{- if .SSHPublicKey}}
+    ssh_authorized_keys:
+      - {{.SSHPublicKey}}
+    {{- end}}
+  os: linux
+  category: opensuse
+  tags:
+    - opensuse
+    - rpm-based

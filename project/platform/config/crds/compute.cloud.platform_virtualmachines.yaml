@@ -57,6 +57,33 @@ spec:
           spec:
             description: VirtualMachineSpec defines the desired state of VirtualMachine.
             properties:
+              cloudInit:
+                description: |-
+                  CloudInit configuration reference. Exactly one of the fields must be set.
+                  If not specified, a default cloud-init matching the disk image category is used.
+                properties:
+                  cloudInit:
+                    description: Reference to a CloudInit resource by name (user-owned,
+                      cluster-scoped).
+                    type: string
+                  publicCloudInit:
+                    description: Reference to a PublicCloudInit resource by name.
+                    type: string
+                  secret:
+                    description: Reference to a Secret containing cloud-init user-data
+                      in the "userData" key.
+                    properties:
+                      name:
+                        description: Name of the Secret.
+                        type: string
+                      namespace:
+                        description: Namespace of the Secret.
+                        type: string
+                    required:
+                    - name
+                    - namespace
+                    type: object
+                type: object
               cores:
                 description: Number of virtual CPU cores (1-64).
                 maximum: 64

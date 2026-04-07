@@ -83,3 +83,11 @@ export const vmApi = {
 export const publicImageApi = {
   list: () => k8sList<K8sResource>(`${COMPUTE_API}/publicimages`),
 };
+
+export const publicCloudInitApi = {
+  list: () => k8sList<K8sResource>(`${COMPUTE_API}/publiccloudinits`),
+};
+
+export const cloudInitApi = {
+  list: () => k8sList<K8sResource>(`${COMPUTE_API}/cloudinits`),
+};

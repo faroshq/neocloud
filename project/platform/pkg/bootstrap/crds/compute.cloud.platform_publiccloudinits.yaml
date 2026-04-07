@@ -1,0 +1,96 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: publiccloudinits.compute.cloud.platform
+spec:
+  group: compute.cloud.platform
+  names:
+    kind: PublicCloudInit
+    listKind: PublicCloudInitList
+    plural: publiccloudinits
+    shortNames:
+    - pci
+    singular: publiccloudinit
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.displayName
+      name: Display Name
+      type: string
+    - jsonPath: .spec.os
+      name: OS
+      type: string
+    - jsonPath: .spec.category
+      name: Category
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          PublicCloudInit is a catalog entry for a cloud-init template available
+          for use when provisioning VMs. These are distributed to all bound workspaces
+          via the cloud.platform APIExport as cached resources.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: PublicCloudInitSpec defines the desired state of PublicCloudInit.
+            properties:
+              category:
+                description: Category groups cloud-init templates for display (e.g.
+                  "debian", "redhat", "generic").
+                type: string
+              description:
+                description: Short description of the cloud-init template.
+                type: string
+              displayName:
+                description: Human-readable display name for the cloud-init template.
+                type: string
+              os:
+                default: linux
+                description: Operating system family this cloud-init is designed for
+                  (e.g. "linux", "windows").
+                type: string
+              tags:
+                description: Tags for filtering and search.
+                items:
+                  type: string
+                type: array
+              userData:
+                description: |-
+                  Cloud-init user-data template content.
+                  Supports the following template variables:
+                    {{.Hostname}} - the VM hostname
+                    {{.SSHPublicKey}} - the SSH public key (if configured)
+                type: string
+            required:
+            - displayName
+            - userData
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources: {}

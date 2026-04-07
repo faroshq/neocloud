@@ -1,0 +1,8 @@
+apiVersion: cache.kcp.io/v1alpha1
+kind: CachedResource
+metadata:
+  name: publiccloudinits
+spec:
+  group: compute.cloud.platform
+  version: v1alpha1
+  resource: publiccloudinits

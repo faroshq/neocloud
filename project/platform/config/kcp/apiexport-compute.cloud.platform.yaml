@@ -5,23 +5,38 @@ metadata:
 spec:
   resources:
   - group: compute.cloud.platform
+    name: cloudinits
+    schema: v260407-7c8435a.cloudinits.compute.cloud.platform
+    storage:
+      crd: {}
+  - group: compute.cloud.platform
     name: kubernetesclusters
     schema: v260401-3e36d62.kubernetesclusters.compute.cloud.platform
     storage:
       crd: {}
   - group: compute.cloud.platform
+    name: publiccloudinits
+    schema: v260407-7c8435a.publiccloudinits.compute.cloud.platform
+    storage:
+      virtual:
+        identityHash: __PUBLICCLOUDINITS_IDENTITY_HASH__
+        reference:
+          apiGroup: cache.kcp.io
+          kind: CachedResourceEndpointSlice
+          name: publiccloudinits
+  - group: compute.cloud.platform
     name: publicimages
     schema: v260406-6a0f2ed.publicimages.compute.cloud.platform
     storage:
       virtual:
+        identityHash: __PUBLICIMAGES_IDENTITY_HASH__
         reference:
           apiGroup: cache.kcp.io
           kind: CachedResourceEndpointSlice
           name: publicimages
-        identityHash: __PUBLICIMAGES_IDENTITY_HASH__
   - group: compute.cloud.platform
     name: virtualmachines
-    schema: v260401-3e36d62.virtualmachines.compute.cloud.platform
+    schema: v260407-7c8435a.virtualmachines.compute.cloud.platform
     storage:
       crd: {}
 status: {}

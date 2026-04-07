@@ -34,6 +34,7 @@ import (
 	"k8s.io/klog/v2"
 
 	kcpconfig "github.com/faroshq/kcp-ref-arch/project/platform/config/kcp"
+	publiccloudinitsconfig "github.com/faroshq/kcp-ref-arch/project/platform/config/publiccloudinits"
 	publicimagesconfig "github.com/faroshq/kcp-ref-arch/project/platform/config/publicimages"
 	"github.com/faroshq/kcp-ref-arch/project/platform/pkg/bootstrap"
 	"github.com/faroshq/kcp-ref-arch/project/platform/pkg/kcp/confighelpers"
@@ -146,12 +147,24 @@ func (b *Bootstrapper) Bootstrap(ctx context.Context) error {
 	}
 
 	// 7. Create CachedResource in root:platform:providers for publicimages replication.
-	logger.Info("Bootstrapping CachedResource in providers workspace")
+	logger.Info("Bootstrapping CachedResource for publicimages in providers workspace")
 	if err := confighelpers.Bootstrap(ctx, providersDiscovery, providersDynamic, publicimagesconfig.CachedResourceFS); err != nil {
-		return fmt.Errorf("bootstrapping cached resource: %w", err)
+		return fmt.Errorf("bootstrapping cached resource for publicimages: %w", err)
 	}
 
-	// 8. Wait for CachedResource to be ready and get publicimages identity hash.
+	// 8. Create PublicCloudInit CRs in root:platform:providers (source for cache replication).
+	logger.Info("Bootstrapping PublicCloudInit resources in providers workspace")
+	if err := confighelpers.Bootstrap(ctx, providersDiscovery, providersDynamic, publiccloudinitsconfig.PublicCloudInitsFS); err != nil {
+		return fmt.Errorf("bootstrapping public cloud-inits: %w", err)
+	}
+
+	// 9. Create CachedResource in root:platform:providers for publiccloudinits replication.
+	logger.Info("Bootstrapping CachedResource for publiccloudinits in providers workspace")
+	if err := confighelpers.Bootstrap(ctx, providersDiscovery, providersDynamic, publiccloudinitsconfig.CachedResourceFS); err != nil {
+		return fmt.Errorf("bootstrapping cached resource for publiccloudinits: %w", err)
+	}
+
+	// 10. Wait for CachedResources to be ready and get identity hashes.
 	logger.Info("Waiting for CachedResource publicimages to be ready")
 	publicimagesIdentityHash, err := waitForCachedResourceReady(ctx, providersDynamic, "publicimages")
 	if err != nil {
@@ -159,22 +172,30 @@ func (b *Bootstrapper) Bootstrap(ctx context.Context) error {
 	}
 	logger.Info("Got publicimages identity hash", "hash", publicimagesIdentityHash)
 
-	// 9. Bootstrap APIResourceSchemas and APIExport in root:platform:providers.
+	logger.Info("Waiting for CachedResource publiccloudinits to be ready")
+	publiccloudinitsIdentityHash, err := waitForCachedResourceReady(ctx, providersDynamic, "publiccloudinits")
+	if err != nil {
+		return fmt.Errorf("waiting for CachedResource publiccloudinits: %w", err)
+	}
+	logger.Info("Got publiccloudinits identity hash", "hash", publiccloudinitsIdentityHash)
+
+	// 11. Bootstrap APIResourceSchemas and APIExport in root:platform:providers.
 	logger.Info("Bootstrapping APIResourceSchemas and APIExport")
 	if err := confighelpers.Bootstrap(ctx, providersDiscovery, providersDynamic, kcpconfig.ProvidersFS,
 		confighelpers.ReplaceOption("__TENANCY_IDENTITY_HASH__", identityHash),
 		confighelpers.ReplaceOption("__PUBLICIMAGES_IDENTITY_HASH__", publicimagesIdentityHash),
+		confighelpers.ReplaceOption("__PUBLICCLOUDINITS_IDENTITY_HASH__", publiccloudinitsIdentityHash),
 	); err != nil {
 		return fmt.Errorf("bootstrapping providers: %w", err)
 	}
 
-	// 10. Create APIBinding in root workspace to bind to cloud.platform APIExport.
+	// 12. Create APIBinding in root workspace to bind to cloud.platform APIExport.
 	logger.Info("Ensuring APIBinding for cloud.platform in root workspace")
 	if err := ensureAPIBinding(ctx, rootDynamic, "cloud.platform", "root:platform:providers"); err != nil {
 		return fmt.Errorf("creating APIBinding for cloud.platform: %w", err)
 	}
 
-	// 11. Create ClusterRoleBindings for static token users in root workspace.
+	// 13. Create ClusterRoleBindings for static token users in root workspace.
 	if len(b.staticAuthTokens) > 0 {
 		logger.Info("Bootstrapping RBAC for static token users")
 		for _, token := range b.staticAuthTokens {

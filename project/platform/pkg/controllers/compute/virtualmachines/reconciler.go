@@ -17,9 +17,11 @@ limitations under the License.
 package virtualmachines
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
+	"text/template"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -172,6 +174,7 @@ func (r *Reconciler) handleFailed(ctx context.Context, c client.Client, vm *comp
 }
 
 // handleDeletion cleans up the KubeVirt VM on the workload cluster and removes the finalizer.
+// It waits for the KubeVirt VM to be fully gone before removing the finalizer.
 func (r *Reconciler) handleDeletion(ctx context.Context, c client.Client, vm *computev1alpha1.VirtualMachine, logger klog.Logger) (ctrl.Result, error) {
 	if !controllerutil.ContainsFinalizer(vm, finalizerName) {
 		return ctrl.Result{}, nil
@@ -181,10 +184,23 @@ func (r *Reconciler) handleDeletion(ctx context.Context, c client.Client, vm *co
 	logger.Info("VM deleted, cleaning up KubeVirt VM", "kubevirtName", kvName)
 
 	if r.workloadClient != nil {
-		err := r.workloadClient.Resource(kubevirtVMGVR).Namespace(defaultNamespace).Delete(ctx, kvName, metav1.DeleteOptions{})
-		if err != nil {
-			logger.Info("KubeVirt VM deletion (may already be gone)", "error", err)
+		// Check if the KubeVirt VM still exists.
+		_, err := r.workloadClient.Resource(kubevirtVMGVR).Namespace(defaultNamespace).Get(ctx, kvName, metav1.GetOptions{})
+		if err == nil {
+			// VM still exists — issue a delete and requeue to wait for it to be gone.
+			delErr := r.workloadClient.Resource(kubevirtVMGVR).Namespace(defaultNamespace).Delete(ctx, kvName, metav1.DeleteOptions{})
+			if delErr != nil && !apierrors.IsNotFound(delErr) {
+				logger.Error(delErr, "Failed to delete KubeVirt VM")
+			}
+			logger.Info("Waiting for KubeVirt VM to be fully deleted", "kubevirtName", kvName)
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		} else if !apierrors.IsNotFound(err) {
+			// Transient error checking the VM — requeue.
+			logger.Info("Failed to check KubeVirt VM during deletion, requeueing", "error", err)
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 		}
+		// IsNotFound — VM is gone, safe to remove finalizer.
+		logger.Info("KubeVirt VM is fully deleted", "kubevirtName", kvName)
 	}
 
 	controllerutil.RemoveFinalizer(vm, finalizerName)
@@ -200,11 +216,21 @@ func (r *Reconciler) handlePending(ctx context.Context, c client.Client, vm *com
 	kvName := kubevirtVMName(vm)
 
 	if r.workloadClient != nil {
+		// Resolve cloud-init user-data from the reference (or default).
+		userData, err := resolveCloudInitUserData(ctx, c, vm, kvName)
+		if err != nil {
+			logger.Error(err, "Failed to resolve cloud-init user-data")
+			vm.Status.Phase = computev1alpha1.VirtualMachineFailed
+			vm.Status.Message = fmt.Sprintf("Failed to resolve cloud-init: %v", err)
+			_ = c.Status().Update(ctx, vm)
+			return ctrl.Result{}, err
+		}
+
 		// Build and create the KubeVirt VirtualMachine on the workload cluster.
-		kvVM := buildKubeVirtVM(kvName, vm)
+		kvVM := buildKubeVirtVM(kvName, vm, userData)
 		logger.Info("Creating KubeVirt VM on workload cluster", "kubevirtName", kvName)
 
-		_, err := r.workloadClient.Resource(kubevirtVMGVR).Namespace(defaultNamespace).Create(ctx, kvVM, metav1.CreateOptions{})
+		_, err = r.workloadClient.Resource(kubevirtVMGVR).Namespace(defaultNamespace).Create(ctx, kvVM, metav1.CreateOptions{})
 		if err != nil {
 			logger.Error(err, "Failed to create KubeVirt VM")
 			vm.Status.Phase = computev1alpha1.VirtualMachineFailed
@@ -404,22 +430,128 @@ func kubevirtVMName(vm *computev1alpha1.VirtualMachine) string {
 	return fmt.Sprintf("platform-%s", strings.ToLower(string(vm.UID)[:8]))
 }
 
-// buildKubeVirtVM constructs an unstructured KubeVirt VirtualMachine object.
-func buildKubeVirtVM(name string, vm *computev1alpha1.VirtualMachine) *unstructured.Unstructured {
-	containerDiskImage := imageMap[vm.Spec.Disk.Image]
-	if containerDiskImage == "" {
-		containerDiskImage = "ghcr.io/mjudeikis/containerdisks/ubuntu:22.04"
+// cloudInitCategoryMap maps image categories to default PublicCloudInit names.
+var cloudInitCategoryMap = map[string]string{
+	"ubuntu":   "debian",
+	"debian":   "debian",
+	"fedora":   "redhat",
+	"centos":   "redhat",
+	"opensuse": "opensuse",
+}
+
+// cloudInitTemplateData holds the variables available in cloud-init templates.
+type cloudInitTemplateData struct {
+	Hostname     string
+	SSHPublicKey string
+}
+
+// resolveCloudInitUserData resolves the cloud-init user-data for a VM.
+// It checks the VM's CloudInit reference (PublicCloudInit, CloudInit, or Secret),
+// falls back to a default PublicCloudInit based on the disk image, and renders
+// the Go template with VM-specific variables.
+func resolveCloudInitUserData(ctx context.Context, c client.Client, vm *computev1alpha1.VirtualMachine, hostname string) (string, error) {
+	var userDataTemplate string
+
+	if vm.Spec.CloudInit != nil {
+		ref := vm.Spec.CloudInit
+
+		switch {
+		case ref.PublicCloudInit != "":
+			var pci computev1alpha1.PublicCloudInit
+			if err := c.Get(ctx, client.ObjectKey{Name: ref.PublicCloudInit}, &pci); err != nil {
+				return "", fmt.Errorf("getting PublicCloudInit %q: %w", ref.PublicCloudInit, err)
+			}
+			userDataTemplate = pci.Spec.UserData
+
+		case ref.CloudInit != "":
+			var ci computev1alpha1.CloudInit
+			if err := c.Get(ctx, client.ObjectKey{Name: ref.CloudInit}, &ci); err != nil {
+				return "", fmt.Errorf("getting CloudInit %q: %w", ref.CloudInit, err)
+			}
+			userDataTemplate = ci.Spec.UserData
+
+		case ref.Secret != nil:
+			var secret unstructured.Unstructured
+			secret.SetGroupVersionKind(schema.GroupVersionKind{Version: "v1", Kind: "Secret"})
+			if err := c.Get(ctx, client.ObjectKey{Name: ref.Secret.Name, Namespace: ref.Secret.Namespace}, &secret); err != nil {
+				return "", fmt.Errorf("getting Secret %s/%s: %w", ref.Secret.Namespace, ref.Secret.Name, err)
+			}
+			data, ok, _ := unstructured.NestedString(secret.Object, "data", "userData")
+			if !ok {
+				// Try stringData for unencoded secrets.
+				data, ok, _ = unstructured.NestedString(secret.Object, "stringData", "userData")
+			}
+			if !ok || data == "" {
+				return "", fmt.Errorf("Secret %s/%s does not contain 'userData' key", ref.Secret.Namespace, ref.Secret.Name)
+			}
+			userDataTemplate = data
+		}
 	}
 
-	// Build cloud-init userdata.
-	userData := "#cloud-config\nhostname: " + name + "\n"
+	// Fall back to default PublicCloudInit based on image category.
+	if userDataTemplate == "" {
+		defaultName := "debian" // safe default
+		// Try to match image name to a category.
+		for prefix, ciName := range cloudInitCategoryMap {
+			if strings.Contains(vm.Spec.Disk.Image, prefix) {
+				defaultName = ciName
+				break
+			}
+		}
+
+		var pci computev1alpha1.PublicCloudInit
+		if err := c.Get(ctx, client.ObjectKey{Name: defaultName}, &pci); err != nil {
+			// If default PublicCloudInit not found, use a hardcoded fallback.
+			klog.FromContext(ctx).Info("Default PublicCloudInit not found, using hardcoded fallback", "name", defaultName, "error", err)
+			return buildFallbackUserData(hostname, vm), nil
+		}
+		userDataTemplate = pci.Spec.UserData
+	}
+
+	return renderCloudInitTemplate(userDataTemplate, hostname, vm)
+}
+
+// renderCloudInitTemplate executes a cloud-init template with VM-specific variables.
+func renderCloudInitTemplate(tmplStr, hostname string, vm *computev1alpha1.VirtualMachine) (string, error) {
+	data := cloudInitTemplateData{
+		Hostname: hostname,
+	}
+	if vm.Spec.SSH != nil && vm.Spec.SSH.PublicKey != "" {
+		data.SSHPublicKey = vm.Spec.SSH.PublicKey
+	}
+
+	tmpl, err := template.New("cloudinit").Parse(tmplStr)
+	if err != nil {
+		return "", fmt.Errorf("parsing cloud-init template: %w", err)
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("rendering cloud-init template: %w", err)
+	}
+
+	return buf.String(), nil
+}
+
+// buildFallbackUserData generates a hardcoded cloud-init user-data as a last resort.
+func buildFallbackUserData(hostname string, vm *computev1alpha1.VirtualMachine) string {
+	userData := "#cloud-config\nhostname: " + hostname + "\n"
 	userData += "ssh_pwauth: true\n"
 	userData += "disable_root: false\n"
 	userData += "chpasswd:\n  users:\n    - name: root\n      password: platform\n      type: text\n  expire: false\n"
 	userData += "packages:\n  - openssh-server\n"
-	userData += "runcmd:\n  - systemctl enable ssh || systemctl enable sshd || true\n  - systemctl start ssh || systemctl start sshd || true\n"
+	userData += "runcmd:\n  - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config\n  - systemctl enable ssh || systemctl enable sshd || true\n  - systemctl restart ssh || systemctl restart sshd || true\n"
 	if vm.Spec.SSH != nil && vm.Spec.SSH.PublicKey != "" {
 		userData += "ssh_authorized_keys:\n  - " + vm.Spec.SSH.PublicKey + "\n"
+	}
+	return userData
+}
+
+// buildKubeVirtVM constructs an unstructured KubeVirt VirtualMachine object.
+func buildKubeVirtVM(name string, vm *computev1alpha1.VirtualMachine, userData string) *unstructured.Unstructured {
+	containerDiskImage := imageMap[vm.Spec.Disk.Image]
+	if containerDiskImage == "" {
+		containerDiskImage = "ghcr.io/mjudeikis/containerdisks/ubuntu:22.04"
 	}
 
 	// Build volumes list.

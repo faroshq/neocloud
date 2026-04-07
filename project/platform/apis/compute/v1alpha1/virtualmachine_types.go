@@ -45,6 +45,38 @@ type VirtualMachineSpec struct {
 	// SSH access configuration.
 	// +optional
 	SSH *VirtualMachineSSH `json:"ssh,omitempty"`
+
+	// CloudInit configuration reference. Exactly one of the fields must be set.
+	// If not specified, a default cloud-init matching the disk image category is used.
+	// +optional
+	CloudInit *CloudInitReference `json:"cloudInit,omitempty"`
+}
+
+// CloudInitReference specifies where to obtain cloud-init user-data.
+// Exactly one of the fields must be set.
+type CloudInitReference struct {
+	// Reference to a PublicCloudInit resource by name.
+	// +optional
+	PublicCloudInit string `json:"publicCloudInit,omitempty"`
+
+	// Reference to a CloudInit resource by name (user-owned, cluster-scoped).
+	// +optional
+	CloudInit string `json:"cloudInit,omitempty"`
+
+	// Reference to a Secret containing cloud-init user-data in the "userData" key.
+	// +optional
+	Secret *SecretReference `json:"secret,omitempty"`
+}
+
+// SecretReference identifies a Secret by name and namespace.
+type SecretReference struct {
+	// Name of the Secret.
+	// +required
+	Name string `json:"name"`
+
+	// Namespace of the Secret.
+	// +required
+	Namespace string `json:"namespace"`
 }
 
 // VirtualMachineDisk defines the root disk for a VirtualMachine.

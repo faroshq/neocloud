@@ -1,0 +1,72 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: cloudinits.compute.cloud.platform
+spec:
+  group: compute.cloud.platform
+  names:
+    kind: CloudInit
+    listKind: CloudInitList
+    plural: cloudinits
+    shortNames:
+    - ci
+    singular: cloudinit
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.displayName
+      name: Display Name
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: CloudInit is a user-owned cloud-init template for VM provisioning.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: CloudInitSpec defines the desired state of CloudInit.
+            properties:
+              description:
+                description: Short description of the cloud-init template.
+                type: string
+              displayName:
+                description: Human-readable display name for the cloud-init template.
+                type: string
+              userData:
+                description: |-
+                  Cloud-init user-data template content.
+                  Supports the following template variables:
+                    {{.Hostname}} - the VM hostname
+                    {{.SSHPublicKey}} - the SSH public key (if configured)
+                type: string
+            required:
+            - userData
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources: {}

@@ -57,7 +57,14 @@ echo "Generating kcp APIResourceSchemas with apigen..."
         --output-dir "${PLATFORM_ROOT}/config/kcp"
 )
 
-# Step 4: Generate cloud.platform merged APIExport from all individual APIExports.
+# Step 4: Patch virtual storage for cached resources in generated APIExports.
+# apigen always outputs "storage: crd: {}" but publicimages and publiccloudinits
+# use KCP CachedResource virtual storage. Apply overrides before merging.
+echo "Patching virtual storage for cached resources..."
+go run "${PLATFORM_ROOT}/hack/patch-virtual-storage" \
+    --config-dir "${PLATFORM_ROOT}/config/kcp"
+
+# Step 5: Generate cloud.platform merged APIExport from all individual APIExports.
 echo "Generating merged cloud.platform APIExport..."
 go run "${PLATFORM_ROOT}/hack/gen-core-apiexport" \
     --config-dir "${PLATFORM_ROOT}/config/kcp" \

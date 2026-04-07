@@ -114,6 +114,7 @@ export const VMDetailPage: React.FC = () => {
   const disk = (spec.disk || {}) as Record<string, unknown>;
   const gpu = (spec.gpu || {}) as Record<string, unknown>;
   const ssh = (spec.ssh || {}) as Record<string, unknown>;
+  const cloudInit = (spec.cloudInit || {}) as Record<string, unknown>;
   const status = (vm.status || {}) as Record<string, unknown>;
   const phase = (status.phase as string) || 'Unknown';
   const conditions =
@@ -253,6 +254,15 @@ export const VMDetailPage: React.FC = () => {
               value={gpu.count || 0}
               mono
             />
+            {cloudInit.publicCloudInit ? (
+              <InfoRow label="Cloud-Init" value={cloudInit.publicCloudInit} mono />
+            ) : cloudInit.cloudInit ? (
+              <InfoRow label="Cloud-Init" value={cloudInit.cloudInit} mono />
+            ) : cloudInit.secret ? (
+              <InfoRow label="Cloud-Init" value={`Secret: ${(cloudInit.secret as Record<string, string>).namespace}/${(cloudInit.secret as Record<string, string>).name}`} mono />
+            ) : (
+              <InfoRow label="Cloud-Init" value="Auto-detect" />
+            )}
             {ssh.publicKey ? (
               <InfoRow label="SSH Key" value="Configured" />
             ) : null}
