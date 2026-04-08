@@ -26,5 +26,6 @@ spec:
     credentialsName: worker-cpu-bmc-credentials
   rootDeviceHints:
     deviceName: /dev/vda
+  bootMode: legacy
   online: true
   automatedCleaningMode: disabled
