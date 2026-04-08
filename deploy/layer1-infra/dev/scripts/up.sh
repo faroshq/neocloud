@@ -208,6 +208,19 @@ kubectl -n baremetal-operator-system wait --for=condition=Available deployment -
 
 info "Deploying Ironic..."
 kubectl apply -k "${DEV_DIR}/metal3/ironic"
+
+# Patch configmaps with our provisioning network IPs
+# (kustomize patches may not merge correctly with hashed configmap names)
+kubectl -n baremetal-operator-system patch configmap ironic --type merge -p \
+  '{"data":{"IRONIC_ENDPOINT":"http://172.16.20.10:6385/v1/","PROVISIONING_INTERFACE":"ens4","DHCP_RANGE":"172.16.20.100,172.16.20.200","CACHEURL":"http://172.16.20.10:6180/images"}}'
+for cm in $(kubectl -n baremetal-operator-system get configmap -o name | grep ironic-bmo-configmap); do
+  kubectl -n baremetal-operator-system patch "${cm}" --type merge -p \
+    '{"data":{"IRONIC_IP":"172.16.20.10","IRONIC_BASE_URL":"http://172.16.20.10:6385","PROVISIONING_IP":"172.16.20.10","PROVISIONING_INTERFACE":"ens4","DHCP_RANGE":"172.16.20.100,172.16.20.200","DEPLOY_KERNEL_URL":"http://172.16.20.10:6180/images/ironic-python-agent.kernel","DEPLOY_RAMDISK_URL":"http://172.16.20.10:6180/images/ironic-python-agent.initramfs","IRONIC_ENDPOINT":"http://172.16.20.10:6385/v1/","IRONIC_FAST_TRACK":"true"}}'
+done
+
+# Restart deployments to pick up patched configmaps
+kubectl -n baremetal-operator-system rollout restart deployment baremetal-operator-controller-manager
+kubectl -n baremetal-operator-system rollout restart deployment baremetal-operator-ironic
 kubectl -n baremetal-operator-system wait --for=condition=Available deployment --all --timeout=300s
 
 # Copy images to mgmt VM for Ironic to serve via HTTP
@@ -234,12 +247,18 @@ kubectl apply -f "${DEV_DIR}/metal3/baremetalhost-cpu.yaml"
 kubectl apply -f "${DEV_DIR}/metal3/baremetalhost-gpu.yaml"
 
 info "Waiting for BareMetalHosts to be inspected..."
+info "  Debug: kubectl get bmh -n metal3"
+info "  Debug: kubectl logs -n baremetal-operator-system deployment/baremetal-operator-controller-manager --tail=20"
 for bmh in worker-cpu worker-gpu; do
   for i in $(seq 1 60); do
     STATE=$(kubectl -n metal3 get bmh "${bmh}" -o jsonpath='{.status.provisioning.state}' 2>/dev/null || echo "unknown")
+    ERROR=$(kubectl -n metal3 get bmh "${bmh}" -o jsonpath='{.status.errorMessage}' 2>/dev/null)
     if [ "${STATE}" = "available" ] || [ "${STATE}" = "ready" ]; then
       info "  ${bmh}: ${STATE}"
       break
+    fi
+    if [ $((i % 6)) -eq 0 ]; then
+      info "  ${bmh}: ${STATE} (waiting... ${i}/60)${ERROR:+ error: ${ERROR}}"
     fi
     sleep 10
   done
