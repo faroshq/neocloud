@@ -32,8 +32,9 @@ jobs:
       - name: Test platform
         run: make test
 
-      - name: Lint platform
-        run: make lint
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          working-directory: src/platform
 
   docker-platform:
     runs-on: ubuntu-latest
