@@ -172,8 +172,10 @@ for worker in worker-cpu worker-gpu; do
 done
 
 # Ensure OVMF symlinks exist (Ubuntu 24.04 ships 4M variants only)
-[ -f /usr/share/OVMF/OVMF_VARS.fd ] || ln -sf /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd
-[ -f /usr/share/OVMF/OVMF_CODE.fd ] || ln -sf /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd
+for f in OVMF_VARS OVMF_CODE; do
+  [ -f "/usr/share/OVMF/${f}.fd" ] || ln -sf "/usr/share/OVMF/${f}_4M.fd" "/usr/share/OVMF/${f}.fd"
+done
+[ -f /usr/share/OVMF/OVMF_CODE.secboot.fd ] || ln -sf /usr/share/OVMF/OVMF_CODE_4M.secboot.fd /usr/share/OVMF/OVMF_CODE.secboot.fd
 
 # --- Step 5: Start sushy-tools ---
 info "Starting sushy-tools (virtual Redfish BMC)..."
