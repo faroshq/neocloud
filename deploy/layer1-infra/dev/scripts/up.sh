@@ -237,13 +237,17 @@ for i in $(seq 1 120); do
   sleep 5
 done
 
-kubectl -n "${IRONIC_NS}" exec "${IRONIC_POD}" -c ironic-httpd -- mkdir -p /shared/html/images
-kubectl cp "${WORKER_IMG}" "${IRONIC_NS}/${IRONIC_POD}:/shared/html/images/ubuntu-worker.img" -c ironic-httpd
-
-# Generate checksum inside the pod
-kubectl -n "${IRONIC_NS}" exec "${IRONIC_POD}" -c ironic-httpd -- \
-  sh -c 'cd /shared/html/images && sha512sum ubuntu-worker.img > ubuntu-worker.img.sha512sum'
-info "  Ubuntu worker image copied into Ironic pod."
+# Only copy if image isn't already in the pod
+IMG_EXISTS=$(kubectl -n "${IRONIC_NS}" exec "${IRONIC_POD}" -c ironic-httpd -- test -f /shared/html/images/ubuntu-worker.img && echo "yes" || true)
+if [ "${IMG_EXISTS}" != "yes" ]; then
+  kubectl -n "${IRONIC_NS}" exec "${IRONIC_POD}" -c ironic-httpd -- mkdir -p /shared/html/images
+  kubectl cp "${WORKER_IMG}" "${IRONIC_NS}/${IRONIC_POD}:/shared/html/images/ubuntu-worker.img" -c ironic-httpd
+  kubectl -n "${IRONIC_NS}" exec "${IRONIC_POD}" -c ironic-httpd -- \
+    sh -c 'cd /shared/html/images && sha512sum ubuntu-worker.img > ubuntu-worker.img.sha512sum'
+  info "  Ubuntu worker image copied into Ironic pod."
+else
+  info "  Ubuntu worker image already in Ironic pod, skipping copy."
+fi
 
 # Verify images are served
 info "  Verifying image HTTP access..."
