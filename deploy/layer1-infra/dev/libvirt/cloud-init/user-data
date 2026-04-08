@@ -36,6 +36,9 @@ write_files:
               - 172.16.30.10/24
 
 runcmd:
+  # Enable guest agent so host can detect readiness
+  - systemctl enable --now qemu-guest-agent
+
   - netplan apply
 
   # Wait for DNS to be ready after netplan apply

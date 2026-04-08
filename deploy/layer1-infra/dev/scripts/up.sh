@@ -38,11 +38,12 @@ if [ "$(uname)" != "Linux" ]; then
 fi
 
 # --- Preflight checks ---
-for cmd in virsh qemu-img genisoimage sushy-emulator; do
+for cmd in virsh qemu-img genisoimage sushy-emulator clusterctl; do
   if ! command -v "${cmd}" &>/dev/null; then
     echo "ERROR: '${cmd}' not found. Install prerequisites:"
     echo "  sudo apt install libvirt-daemon-system qemu-kvm virtinst genisoimage pipx"
     echo "  pipx install sushy-tools"
+    echo "  curl -L https://github.com/kubernetes-sigs/cluster-api/releases/latest/download/clusterctl-linux-amd64 -o /usr/local/bin/clusterctl && chmod +x /usr/local/bin/clusterctl"
     exit 1
   fi
 done
@@ -175,7 +176,7 @@ if pgrep -f sushy-emulator &>/dev/null; then
   info "  sushy-emulator already running."
 else
   sushy-emulator --libvirt-uri "qemu:///system" \
-    --bind 172.16.20.1 --port 8000 &
+    -i 172.16.20.1 -p 8000 &
   SUSHY_PID=$!
   echo "${SUSHY_PID}" > "${NEO_DATADIR}/sushy-emulator.pid"
   info "  sushy-emulator started (PID ${SUSHY_PID}) on 172.16.20.1:8000"
@@ -191,10 +192,6 @@ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/do
 kubectl -n cert-manager wait --for=condition=Available deployment --all --timeout=300s
 
 info "Installing Cluster API + Metal3 provider..."
-if ! command -v clusterctl &>/dev/null; then
-  warn "clusterctl not found. Install it first."
-  exit 1
-fi
 clusterctl init --infrastructure metal3
 
 info "Deploying Ironic configuration..."
