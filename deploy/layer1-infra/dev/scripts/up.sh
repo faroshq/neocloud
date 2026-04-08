@@ -42,8 +42,8 @@ fi
 for cmd in virsh qemu-img genisoimage sushy-emulator clusterctl sshpass; do
   if ! command -v "${cmd}" &>/dev/null; then
     echo "ERROR: '${cmd}' not found. Install prerequisites:"
-    echo "  sudo apt install libvirt-daemon-system qemu-kvm virtinst genisoimage pipx sshpass"
-    echo "  pipx install sushy-tools"
+    echo "  sudo apt install libvirt-daemon-system qemu-kvm virtinst genisoimage pipx sshpass ovmf libvirt-dev pkg-config python3-dev"
+    echo "  pipx install sushy-tools && pipx inject sushy-tools libvirt-python"
     echo "  curl -L https://github.com/kubernetes-sigs/cluster-api/releases/latest/download/clusterctl-linux-amd64 -o /usr/local/bin/clusterctl && chmod +x /usr/local/bin/clusterctl"
     exit 1
   fi
@@ -170,6 +170,10 @@ for worker in worker-cpu worker-gpu; do
     info "  Defined VM 'neo-${worker}' (powered off, waiting for Metal3)."
   fi
 done
+
+# Ensure OVMF symlinks exist (Ubuntu 24.04 ships 4M variants only)
+[ -f /usr/share/OVMF/OVMF_VARS.fd ] || ln -sf /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd
+[ -f /usr/share/OVMF/OVMF_CODE.fd ] || ln -sf /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd
 
 # --- Step 5: Start sushy-tools ---
 info "Starting sushy-tools (virtual Redfish BMC)..."

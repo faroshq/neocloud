@@ -30,3 +30,19 @@ patches:
         IRONIC_ENDPOINT: "http://172.16.20.10:6385/v1/"
         IRONIC_KERNEL_PARAMS: "console=ttyS0"
         IRONIC_FAST_TRACK: "true"
+  # Patch the BMO controller's configmap (referenced as envFrom in BMO deployment)
+  - target:
+      kind: ConfigMap
+      name: ironic
+      namespace: baremetal-operator-system
+    patch: |
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: ironic
+        namespace: baremetal-operator-system
+      data:
+        IRONIC_ENDPOINT: "http://172.16.20.10:6385/v1/"
+        PROVISIONING_INTERFACE: "ens4"
+        DHCP_RANGE: "172.16.20.100,172.16.20.200"
+        CACHEURL: "http://172.16.20.10:6180/images"
