@@ -209,19 +209,25 @@ info "Copying Ubuntu worker image into Ironic pod..."
 IRONIC_NS="baremetal-operator-system"
 
 # Wait for Ironic pod to be Running and all containers ready
-info "  Waiting for Ironic pod to be ready..."
-for i in $(seq 1 60); do
-  IRONIC_POD=$(kubectl -n "${IRONIC_NS}" get pod -l app=ironic -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+# (rollout restart creates a new pod; init container downloads IPA images which takes time)
+info "  Waiting for Ironic pod to be ready (this may take a few minutes for IPA download)..."
+IRONIC_POD=""
+for i in $(seq 1 120); do
+  IRONIC_POD=$(kubectl -n "${IRONIC_NS}" get pod -l app=ironic --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
   if [ -n "${IRONIC_POD}" ]; then
-    PHASE=$(kubectl -n "${IRONIC_NS}" get pod "${IRONIC_POD}" -o jsonpath='{.status.phase}' 2>/dev/null)
-    READY=$(kubectl -n "${IRONIC_NS}" get pod "${IRONIC_POD}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
-    if [ "${PHASE}" = "Running" ] && [ "${READY}" = "True" ]; then
+    READY=$(kubectl -n "${IRONIC_NS}" get pod "${IRONIC_POD}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
+    if [ "${READY}" = "True" ]; then
       info "  Ironic pod ${IRONIC_POD} is ready."
       break
     fi
   fi
-  if [ "${i}" -eq 60 ]; then
-    warn "Timed out waiting for Ironic pod. Debug: kubectl get pods -n ${IRONIC_NS}"
+  if [ $((i % 12)) -eq 0 ]; then
+    info "  Still waiting... (${i}/120) — Debug: kubectl get pods -n ${IRONIC_NS}"
+  fi
+  if [ "${i}" -eq 120 ]; then
+    warn "Timed out waiting for Ironic pod. Debug:"
+    warn "  kubectl get pods -n ${IRONIC_NS}"
+    warn "  kubectl describe pod -n ${IRONIC_NS} -l app=ironic"
     exit 1
   fi
   sleep 5
