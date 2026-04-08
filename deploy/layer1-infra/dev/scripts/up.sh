@@ -22,6 +22,7 @@ DEV_DIR="${SCRIPT_DIR}/.."
 REPO_ROOT="${DEV_DIR}/../../.."
 NEO_DATADIR="${REPO_ROOT}/.platform-data/libvirt"
 KUBEVIRT_VERSION="${KUBEVIRT_VERSION:-v1.8.1}"
+BMO_VERSION="${BMO_VERSION:-v0.12.3}"
 FLATCAR_CHANNEL="${FLATCAR_CHANNEL:-stable}"
 FLATCAR_VERSION="${FLATCAR_VERSION:-current}"
 
@@ -193,6 +194,10 @@ kubectl -n cert-manager wait --for=condition=Available deployment --all --timeou
 
 info "Installing Cluster API + Metal3 provider..."
 clusterctl init --infrastructure metal3
+
+info "Installing Bare Metal Operator ${BMO_VERSION}..."
+kubectl apply -f "https://github.com/metal3-io/baremetal-operator/releases/download/${BMO_VERSION}/baremetal-operator.yaml"
+kubectl -n baremetal-operator-system wait --for=condition=Available deployment --all --timeout=300s
 
 info "Deploying Ironic configuration..."
 kubectl create namespace metal3 --dry-run=client -o yaml | kubectl apply -f -
