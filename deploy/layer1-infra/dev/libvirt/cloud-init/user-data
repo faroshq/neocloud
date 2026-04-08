@@ -38,8 +38,15 @@ write_files:
 runcmd:
   - netplan apply
 
+  # Wait for DNS to be ready after netplan apply
+  - |
+    for i in $(seq 1 30); do
+      host get.k3s.io >/dev/null 2>&1 && break
+      sleep 2
+    done
+
   # Install k3s
-  - curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable=traefik --write-kubeconfig-mode=644 --tls-san=0.0.0.0 --tls-san=172.16.30.10 --node-label=node.kubernetes.io/role=management" sh -
+  - curl -fL https://get.k3s.io | INSTALL_K3S_EXEC="--disable=traefik --write-kubeconfig-mode=644 --tls-san=0.0.0.0 --tls-san=172.16.30.10 --node-label=node.kubernetes.io/role=management" sh -
 
   # Wait for k3s
   - |
