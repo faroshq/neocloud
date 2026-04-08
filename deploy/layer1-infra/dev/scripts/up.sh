@@ -90,19 +90,8 @@ fi
 # Worker image — reuse Ubuntu cloud image (same as mgmt)
 WORKER_IMG="${UBUNTU_IMG}"
 
-# IPA (Ironic Python Agent) kernel + ramdisk
-IPA_KERNEL="${NEO_DATADIR}/ironic-python-agent.kernel"
-IPA_RAMDISK="${NEO_DATADIR}/ironic-python-agent.initramfs"
-if [ ! -f "${IPA_KERNEL}" ]; then
-  info "  Downloading IPA kernel..."
-  curl -L -o "${IPA_KERNEL}" \
-    "https://tarballs.opendev.org/openstack/ironic-python-agent/dib/files/ipa-centos9-master.kernel"
-fi
-if [ ! -f "${IPA_RAMDISK}" ]; then
-  info "  Downloading IPA ramdisk..."
-  curl -L -o "${IPA_RAMDISK}" \
-    "https://tarballs.opendev.org/openstack/ironic-python-agent/dib/files/ipa-centos9-master.initramfs"
-fi
+# IPA (Ironic Python Agent) images are downloaded by the ipa-downloader
+# init container in the Ironic pod — no need to download them here.
 
 # --- Step 3: Create management VM ---
 info "Creating management VM..."
@@ -214,25 +203,37 @@ kubectl -n baremetal-operator-system rollout restart deployment baremetal-operat
 kubectl -n baremetal-operator-system rollout restart deployment baremetal-operator-ironic
 kubectl -n baremetal-operator-system wait --for=condition=Available deployment --all --timeout=300s
 
-# Copy images into Ironic pod (serves from emptyDir /shared/html/images)
-info "Copying Ubuntu + IPA images into Ironic pod..."
+# Copy worker image into Ironic pod (serves from emptyDir /shared/html/images)
+# IPA images are already there from the ipa-downloader init container.
+info "Copying Ubuntu worker image into Ironic pod..."
 IRONIC_NS="baremetal-operator-system"
-IRONIC_POD=$(kubectl -n "${IRONIC_NS}" get pod -l app=ironic -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-if [ -z "${IRONIC_POD}" ]; then
-  warn "Ironic pod not found. Debug: kubectl get pods -n ${IRONIC_NS}"
-  exit 1
-fi
+
+# Wait for Ironic pod to be Running and all containers ready
+info "  Waiting for Ironic pod to be ready..."
+for i in $(seq 1 60); do
+  IRONIC_POD=$(kubectl -n "${IRONIC_NS}" get pod -l app=ironic -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+  if [ -n "${IRONIC_POD}" ]; then
+    PHASE=$(kubectl -n "${IRONIC_NS}" get pod "${IRONIC_POD}" -o jsonpath='{.status.phase}' 2>/dev/null)
+    READY=$(kubectl -n "${IRONIC_NS}" get pod "${IRONIC_POD}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
+    if [ "${PHASE}" = "Running" ] && [ "${READY}" = "True" ]; then
+      info "  Ironic pod ${IRONIC_POD} is ready."
+      break
+    fi
+  fi
+  if [ "${i}" -eq 60 ]; then
+    warn "Timed out waiting for Ironic pod. Debug: kubectl get pods -n ${IRONIC_NS}"
+    exit 1
+  fi
+  sleep 5
+done
 
 kubectl -n "${IRONIC_NS}" exec "${IRONIC_POD}" -c ironic-httpd -- mkdir -p /shared/html/images
-
-kubectl cp "${IPA_KERNEL}" "${IRONIC_NS}/${IRONIC_POD}:/shared/html/images/ironic-python-agent.kernel" -c ironic-httpd
-kubectl cp "${IPA_RAMDISK}" "${IRONIC_NS}/${IRONIC_POD}:/shared/html/images/ironic-python-agent.initramfs" -c ironic-httpd
 kubectl cp "${WORKER_IMG}" "${IRONIC_NS}/${IRONIC_POD}:/shared/html/images/ubuntu-worker.img" -c ironic-httpd
 
 # Generate checksum inside the pod
 kubectl -n "${IRONIC_NS}" exec "${IRONIC_POD}" -c ironic-httpd -- \
   sh -c 'cd /shared/html/images && sha512sum ubuntu-worker.img > ubuntu-worker.img.sha512sum'
-info "  Images copied into Ironic pod."
+info "  Ubuntu worker image copied into Ironic pod."
 
 # Verify images are served
 info "  Verifying image HTTP access..."
