@@ -199,6 +199,7 @@ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/do
 kubectl -n cert-manager wait --for=condition=Available deployment --all --timeout=300s
 
 info "Installing Cluster API + Metal3 provider..."
+export EXP_KUBEADM_BOOTSTRAP_FORMAT_IGNITION=true
 clusterctl init --infrastructure metal3
 
 info "Installing Bare Metal Operator ${BMO_VERSION}..."
@@ -220,8 +221,10 @@ SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 sshpass -p neo ssh ${SSH_OPTS} "neo@${MGMT_IP}" "sudo mkdir -p /shared/html/images" 2>/dev/null
 sshpass -p neo scp ${SSH_OPTS} "${IPA_KERNEL}" "neo@${MGMT_IP}:/tmp/ironic-python-agent.kernel" 2>/dev/null
 sshpass -p neo scp ${SSH_OPTS} "${IPA_RAMDISK}" "neo@${MGMT_IP}:/tmp/ironic-python-agent.initramfs" 2>/dev/null
-sshpass -p neo scp ${SSH_OPTS} "${FLATCAR_IMG}" "neo@${MGMT_IP}:/tmp/flatcar.img" 2>/dev/null
-sshpass -p neo ssh ${SSH_OPTS} "neo@${MGMT_IP}" "sudo mv /tmp/ironic-python-agent.kernel /tmp/ironic-python-agent.initramfs /tmp/flatcar.img /shared/html/images/" 2>/dev/null
+sshpass -p neo scp ${SSH_OPTS} "${FLATCAR_IMG}" "neo@${MGMT_IP}:/tmp/flatcar_production_qemu_image.img" 2>/dev/null
+sshpass -p neo ssh ${SSH_OPTS} "neo@${MGMT_IP}" "sudo mv /tmp/ironic-python-agent.kernel /tmp/ironic-python-agent.initramfs /tmp/flatcar_production_qemu_image.img /shared/html/images/" 2>/dev/null
+# Generate checksum file for Ironic image validation
+sshpass -p neo ssh ${SSH_OPTS} "neo@${MGMT_IP}" "cd /shared/html/images && sudo sha512sum flatcar_production_qemu_image.img | sudo tee flatcar_production_qemu_image.img.DIGESTS" 2>/dev/null
 info "  Images copied to mgmt VM."
 
 # --- Step 7: Register BareMetalHosts ---
