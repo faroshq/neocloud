@@ -13,8 +13,8 @@ set -euo pipefail
 #   neo-worker-gpu — PXE booted by Ironic, provisioned with Flatcar
 #
 # Prerequisites (Linux):
-#   sudo apt install libvirt-daemon-system qemu-kvm virtinst genisoimage
-#   pip3 install sushy-tools
+#   sudo apt install libvirt-daemon-system qemu-kvm virtinst genisoimage pipx
+#   pipx install sushy-tools
 #   curl -L https://github.com/kubernetes-sigs/cluster-api/releases/latest/download/clusterctl-linux-amd64 -o /usr/local/bin/clusterctl && chmod +x /usr/local/bin/clusterctl
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -41,8 +41,8 @@ fi
 for cmd in virsh qemu-img genisoimage sushy-emulator; do
   if ! command -v "${cmd}" &>/dev/null; then
     echo "ERROR: '${cmd}' not found. Install prerequisites:"
-    echo "  sudo apt install libvirt-daemon-system qemu-kvm virtinst genisoimage"
-    echo "  pip3 install sushy-tools"
+    echo "  sudo apt install libvirt-daemon-system qemu-kvm virtinst genisoimage pipx"
+    echo "  pipx install sushy-tools"
     exit 1
   fi
 done

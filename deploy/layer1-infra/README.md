@@ -13,8 +13,8 @@ Uses libvirt + Metal3 + Ironic — the same provisioning pipeline as production.
 ### Prerequisites (Linux)
 
 ```bash
-sudo apt install libvirt-daemon-system qemu-kvm virtinst genisoimage
-pip3 install sushy-tools
+sudo apt install libvirt-daemon-system qemu-kvm virtinst genisoimage pipx
+pipx install sushy-tools
 # Install clusterctl: https://cluster-api.sigs.k8s.io/user/quick-start#install-clusterctl
 ```
 
