@@ -43,6 +43,38 @@ make layer1-dev-kubeconfig  # Extract kubeconfig
 make layer1-dev-down        # Tear down everything
 ```
 
+### Debugging
+
+```bash
+# List all VMs and their state
+virsh list --all
+
+# VM details
+virsh dominfo neo-mgmt
+
+# Open serial console to a VM (Ctrl+] to exit)
+virsh console neo-mgmt
+
+# Check VM network interfaces and IPs
+virsh domifaddr neo-mgmt --source agent
+
+# List libvirt networks
+virsh net-list --all
+
+# View cloud-init logs (inside mgmt VM)
+virsh console neo-mgmt
+# then: journalctl -u cloud-init --no-pager
+
+# Check k3s status (inside mgmt VM)
+ssh neo@<mgmt-ip> kubectl get nodes
+
+# Check sushy-tools (virtual Redfish BMC)
+curl http://172.16.20.1:8000/redfish/v1/Systems
+
+# Tail VM serial output (useful for PXE boot debugging)
+virsh console neo-worker-cpu
+```
+
 ### Resource Requirements
 
 | VM | CPU | RAM | Disk |
@@ -66,7 +98,7 @@ make layer1-dev-down        # Tear down everything
 Production uses the same Metal3/Ironic stack with real hardware:
 
 | Component | Directory | Purpose |
-|-----------|-----------|---------||
+|-----------|-----------|---------|
 | Metal3 | [prod/metal3/](prod/metal3/) | BareMetalHost templates, Ironic config |
 | Management cluster | [prod/management-cluster/](prod/management-cluster/) | Cluster API + kubeadm (3 CP replicas) |
 | Workload cluster | [prod/workload-cluster/](prod/workload-cluster/) | CPU + GPU worker MachineDeployments |

@@ -5,10 +5,12 @@ users:
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
     lock_passwd: false
-    # password: neo (for emergency console access)
-    passwd: "$6$rounds=4096$randomsalt$YEz1hT1xO8k5HWKK0bMFW7V9w5oR3PSK.JhC5a2WfwfC7HBx2k1kxWk7Y8FchPbK3lPZ9e2lOreN9JnC7qHf1"
+    plain_text_passwd: neo
 
 ssh_pwauth: true
+
+chpasswd:
+  expire: false
 
 package_update: true
 packages:
