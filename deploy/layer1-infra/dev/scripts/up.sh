@@ -213,7 +213,7 @@ IRONIC_NS="baremetal-operator-system"
 info "  Waiting for Ironic pod to be ready (this may take a few minutes for IPA download)..."
 IRONIC_POD=""
 for i in $(seq 1 120); do
-  IRONIC_POD=$(kubectl -n "${IRONIC_NS}" get pod -l app=ironic --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+  IRONIC_POD=$(kubectl -n "${IRONIC_NS}" get pods -o name 2>/dev/null | grep baremetal-operator-ironic | head -1 | sed 's|pod/||' || true)
   if [ -n "${IRONIC_POD}" ]; then
     READY=$(kubectl -n "${IRONIC_NS}" get pod "${IRONIC_POD}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
     if [ "${READY}" = "True" ]; then
