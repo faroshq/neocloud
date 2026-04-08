@@ -256,7 +256,7 @@ The bare metal provisioning layer is interface-based. The platform can work with
 - **Manual / cloud-init** — for hosted machines without BMC access (demo path)
 - **PXE + Ansible** — traditional approach, works but not declarative
 
-> See `deploy/_untested/metal3/` for Metal3 deployment manifests.
+> See `deploy/layer1-infra/prod/metal3/` for Metal3 deployment manifests.
 
 ---
 
@@ -349,7 +349,7 @@ spec:
     name: workload-1
 ```
 
-> See `deploy/_untested/management-cluster/` and `deploy/_untested/workload-cluster/` for full manifests.
+> See `deploy/layer1-infra/prod/management-cluster/` and `deploy/layer1-infra/prod/workload-cluster/` for full manifests.
 
 ---
 
@@ -529,7 +529,7 @@ spec:
 
 Combined with **cert-manager** for automated TLS certificates and **external-dns** for DNS record automation.
 
-> See `deploy/kube-ovn/` for full deployment manifests.
+> See `deploy/layer1-infra/prod/kube-ovn/` for full deployment manifests.
 
 ---
 
@@ -657,7 +657,7 @@ spec:
 
 For simpler deployments: **Longhorn** (block) + **MinIO** (object) is a lighter alternative to Rook-Ceph at the cost of operating two systems instead of one.
 
-> See `deploy/storage/` for Rook-Ceph deployment manifests.
+> See `deploy/layer1-infra/prod/storage/` for Rook-Ceph deployment manifests.
 
 ---
 
@@ -763,7 +763,7 @@ GPU sharing is documented but not implemented in v1. Options for future versions
 
 **Recommended upgrade path:** MIG on supported GPUs (A100+), HAMi (CNCF Sandbox, Apache 2.0) for older or multi-vendor GPUs.
 
-> See `deploy/_untested/gpu/` for GPU Operator deployment manifests.
+> See `deploy/layer1-infra/prod/gpu/` for GPU Operator deployment manifests.
 
 ---
 
@@ -853,7 +853,7 @@ spec:
 
 CDI downloads the image, converts it to raw format, and stores it in a Ceph-backed PV. The VM boots from this disk.
 
-> See `deploy/kubevirt/` for KubeVirt deployment manifests.
+> See `deploy/layer1-infra/prod/kubevirt/` for KubeVirt deployment manifests.
 
 ---
 
@@ -900,7 +900,7 @@ spec:
 
 gVisor is best suited for untrusted, non-GPU tenant workloads where the additional isolation is worth the performance trade-off.
 
-> See `deploy/kubevirt/gvisor-runtimeclass.yaml` for the RuntimeClass manifest.
+> See `deploy/layer1-infra/prod/kubevirt/gvisor-runtimeclass.yaml` for the RuntimeClass manifest.
 
 ---
 
@@ -987,7 +987,7 @@ Runtime         gVisor (optional)               Kernel exploits
 Secrets         etcd encryption + RBAC          Secret exposure
 ```
 
-> See `deploy/security/` for security hardening manifests.
+> See `deploy/layer1-infra/prod/security/` for security hardening manifests.
 
 ---
 
@@ -1025,15 +1025,15 @@ Several Layer 1 components have EU origins:
 
 | Component | Deploy Path |
 |-----------|------------|
-| Metal3 | `deploy/_untested/metal3/` |
-| Management cluster | `deploy/_untested/management-cluster/` |
-| Workload cluster | `deploy/_untested/workload-cluster/` |
-| Kube-OVN | `deploy/kube-ovn/` |
-| Rook-Ceph | `deploy/storage/` |
-| GPU Operator | `deploy/_untested/gpu/` |
-| KubeVirt | `deploy/kubevirt/` |
-| gVisor | `deploy/kubevirt/gvisor-runtimeclass.yaml` |
-| Security | `deploy/security/` |
+| Metal3 | `deploy/layer1-infra/prod/metal3/` |
+| Management cluster | `deploy/layer1-infra/prod/management-cluster/` |
+| Workload cluster | `deploy/layer1-infra/prod/workload-cluster/` |
+| Kube-OVN | `deploy/layer1-infra/prod/kube-ovn/` |
+| Rook-Ceph | `deploy/layer1-infra/prod/storage/` |
+| GPU Operator | `deploy/layer1-infra/prod/gpu/` |
+| KubeVirt | `deploy/layer1-infra/prod/kubevirt/` |
+| gVisor | `deploy/layer1-infra/prod/kubevirt/gvisor-runtimeclass.yaml` |
+| Security | `deploy/layer1-infra/prod/security/` |
 
 ---
 

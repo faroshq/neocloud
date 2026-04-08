@@ -30,7 +30,7 @@ Layer 1: Infrastructure        Bare metal → Kubernetes (Metal3, Flatcar,
 | [docs/guides/deployment.md](docs/guides/deployment.md) | Production deployment guide |
 | [docs/guides/demo.md](docs/guides/demo.md) | Quick demo setup guide |
 | [dev/docs/](dev/docs/) | Local dev setup guides |
-| [deploy/](deploy/) | Production manifests |
+| [deploy/](deploy/) | Layered deploy manifests (dev + prod per layer) |
 | [src/](src/) | Source code (platform + console) |
 
 ## Core Stack

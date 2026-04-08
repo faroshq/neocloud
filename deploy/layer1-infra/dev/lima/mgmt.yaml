@@ -1,0 +1,58 @@
+# Lima VM: management / control plane node
+#
+# Runs k3s server. Workers join this node.
+# Usage: managed by deploy/layer1-infra/dev/scripts/up.sh
+
+arch: x86_64
+vmType: qemu
+
+images:
+  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
+    arch: x86_64
+
+cpus: 2
+memory: 4GiB
+disk: 30GiB
+
+portForwards:
+  - guestPort: 6443
+    hostIP: "0.0.0.0"
+    hostPort: 16443
+
+mounts: []
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+
+      apt-get update
+      apt-get install -y curl socat jq
+
+      # Install k3s server (control plane)
+      curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable=traefik --write-kubeconfig-mode=644 --tls-san=0.0.0.0 --tls-san=127.0.0.1" sh -
+
+      echo "Waiting for k3s server..."
+      for i in $(seq 1 60); do
+        if /usr/local/bin/kubectl get nodes 2>/dev/null | grep -q " Ready"; then
+          echo "k3s server is Ready"
+          break
+        fi
+        sleep 5
+      done
+
+      # Write node token for workers to join
+      cp /var/lib/rancher/k3s/server/node-token /root/node-token
+      chmod 644 /root/node-token
+
+      # Write internal IP for workers
+      hostname -I | awk '{print $1}' > /root/mgmt-ip
+      chmod 644 /root/mgmt-ip
+
+      # Generate external kubeconfig (host-accessible)
+      cp /etc/rancher/k3s/k3s.yaml /root/kubeconfig-external
+      sed -i "s|127.0.0.1:6443|127.0.0.1:16443|g" /root/kubeconfig-external
+      chmod 644 /root/kubeconfig-external
+
+      echo "Management node ready."

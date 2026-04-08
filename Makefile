@@ -1,4 +1,4 @@
-.PHONY: build build-platform build-cli build-console clean generate lint test tidy codegen crds tools verify-codegen docker-platform docker-console run-console console-dev zitadel-up zitadel-down run-dev dev-login lima-up lima-down lima-kubeconfig lima-ssh lima-status demo-vm demo-vm-clean dev-up dev-down
+.PHONY: build build-platform build-cli build-console clean generate lint test tidy codegen crds tools verify-codegen docker-platform docker-console run-console console-dev layer1-dev-up layer1-dev-down layer1-dev-status layer1-dev-kubeconfig layer2-dev-up layer2-dev-down layer3-dev-up layer3-dev-down run-dev dev-login dev-up dev-down demo-vm demo-vm-clean lima-up lima-down lima-kubeconfig lima-status zitadel-up zitadel-down
 
 PLATFORM_DIR := src/platform
 CONSOLE_DIR := src/console
@@ -91,78 +91,39 @@ tidy:
 	cd $(PLATFORM_DIR) && go mod tidy
 
 # --- Dev environment ---
-# Zitadel
-# Username: zitadel-admin@zitadel.localhost
-# Password: Password1! 
-# https://localhost:10443/ui/console?login_hint=zitadel-admin@zitadel.localhost 
+# Zitadel credentials (dev):
+#   Username: zitadel-admin@zitadel.localhost
+#   Password: Password1!
+#   https://localhost:10443/ui/console?login_hint=zitadel-admin@zitadel.localhost
 
-
-ZITADEL_COMPOSE_DIR := dev/zitadel-compose
-LIMA_VM_NAME ?= kubevirt-dev
-LIMA_CONFIG := dev/lima/kubevirt-dev.yaml
-KUBEVIRT_VERSION ?= v1.8.1
+ZITADEL_COMPOSE_DIR := deploy/layer2-platform/dev/zitadel-compose
+LAYER1_SCRIPTS := deploy/layer1-infra/dev/scripts
 WORKLOAD_KUBECONFIG ?= .platform-data/workload-kubeconfig
 
 OIDC_ISSUER_URL ?= https://localhost:10443
 OIDC_CLIENT_ID ?= 366808256712106243
 CONSOLE_ADDR ?= localhost:1234
 
-# --- Lima + KubeVirt (amd64 QEMU VM) ---
+# --- Layer 1: Infrastructure (3-node Lima cluster) ---
 
-lima-up: ## Create Lima x86_64 VM with k3s + KubeVirt
-	@if limactl list -q 2>/dev/null | grep -q "^$(LIMA_VM_NAME)$$"; then \
-		echo "Lima VM '$(LIMA_VM_NAME)' already exists. Use 'make lima-down' to recreate."; \
-	else \
-		echo "Creating Lima x86_64 VM '$(LIMA_VM_NAME)' with k3s + KubeVirt..."; \
-		limactl create --name=$(LIMA_VM_NAME) $(LIMA_CONFIG); \
-		limactl start $(LIMA_VM_NAME); \
-		echo "VM provisioning — this takes ~10 min (QEMU x86 emulation). Run 'make lima-status' to check."; \
-	fi
+layer1-dev-up: ## Create 3-node dev cluster (mgmt + cpu + gpu workers)
+	$(LAYER1_SCRIPTS)/up.sh
 
-lima-kubeconfig: ## Copy kubeconfig from Lima VM to local workload-kubeconfig
-	@echo "Fetching kubeconfig from $(LIMA_VM_NAME)..."
-	@limactl shell $(LIMA_VM_NAME) sudo cat /root/kubeconfig-external > $(WORKLOAD_KUBECONFIG)
-	@echo "Workload kubeconfig written to $(WORKLOAD_KUBECONFIG)"
+layer1-dev-down: ## Tear down all Lima VMs
+	$(LAYER1_SCRIPTS)/down.sh
 
-lima-ssh: ## SSH into the Lima KubeVirt VM
-	limactl shell $(LIMA_VM_NAME)
+layer1-dev-status: ## Check cluster and KubeVirt status
+	$(LAYER1_SCRIPTS)/status.sh
 
-lima-status: ## Check KubeVirt setup progress on the Lima VM
-	@echo "--- VM status ---"
-	@limactl list | grep $(LIMA_VM_NAME) || echo "VM not found"
-	@echo ""
-	@echo "--- k3s node ---"
-	@limactl shell $(LIMA_VM_NAME) sudo /usr/local/bin/kubectl get nodes 2>/dev/null || echo "(k3s not ready)"
-	@echo ""
-	@echo "--- pods ---"
-	@limactl shell $(LIMA_VM_NAME) sudo /usr/local/bin/kubectl get pods -A 2>/dev/null || echo "(k3s not ready)"
-	@echo ""
-	@limactl shell $(LIMA_VM_NAME) sudo test -f /root/.kubevirt-ready 2>/dev/null && echo "KubeVirt is READY" || echo "KubeVirt is NOT ready yet"
+layer1-dev-kubeconfig: ## Extract kubeconfig from management node
+	$(LAYER1_SCRIPTS)/kubeconfig.sh
 
-lima-down: ## Delete Lima KubeVirt VM
-	limactl stop $(LIMA_VM_NAME) 2>/dev/null || true
-	limactl delete $(LIMA_VM_NAME) 2>/dev/null || true
-	@rm -f $(WORKLOAD_KUBECONFIG)
-	@echo "Lima VM '$(LIMA_VM_NAME)' deleted."
+# --- Layer 2: Platform (Zitadel OIDC) ---
 
-demo-vm: ## Create a demo VM on the workload cluster
-	KUBECONFIG=$(WORKLOAD_KUBECONFIG) kubectl apply -f deploy/_untested/kubevirt/demo-vm.yaml
-	@echo "Waiting for VM to start..."
-	KUBECONFIG=$(WORKLOAD_KUBECONFIG) kubectl wait vm/demo-vm --for=condition=Ready --timeout=180s
-	@echo ""
-	@echo "Demo VM is running. Access it with:"
-	@echo "  KUBECONFIG=$(WORKLOAD_KUBECONFIG) virtctl console demo-vm"
-	@echo "  (login: root / demo)"
-
-demo-vm-clean: ## Delete the demo VM
-	KUBECONFIG=$(WORKLOAD_KUBECONFIG) kubectl delete -f deploy/_untested/kubevirt/demo-vm.yaml --ignore-not-found
-
-# --- Zitadel ---
-
-zitadel-up: zitadel-certs ## Start Zitadel via docker-compose
+layer2-dev-up: layer2-dev-certs ## Start Zitadel via docker-compose
 	cd $(ZITADEL_COMPOSE_DIR) && docker compose up -d --wait
 
-zitadel-certs: ## Generate self-signed TLS certs for Zitadel (localhost)
+layer2-dev-certs: ## Generate self-signed TLS certs for Zitadel (localhost)
 	@if [ ! -f $(ZITADEL_COMPOSE_DIR)/certs/localhost.crt ]; then \
 		echo "Generating self-signed TLS certificate for localhost..."; \
 		openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
@@ -175,12 +136,20 @@ zitadel-certs: ## Generate self-signed TLS certs for Zitadel (localhost)
 			-addext "extendedKeyUsage=serverAuth"; \
 	fi
 
-zitadel-down: ## Stop Zitadel
+layer2-dev-down: ## Stop Zitadel
 	cd $(ZITADEL_COMPOSE_DIR) && docker compose down
+
+# --- Layer 3: Production services (stubs) ---
+
+layer3-dev-up: ## Stub — no dev dependencies for layer 3 yet
+	@echo "Layer 3 dev: no-op (billing/monitoring skipped in dev mode)"
+
+layer3-dev-down: ## Stub
+	@echo "Layer 3 dev: nothing to tear down"
 
 # --- Run ---
 
-run-dev: build-platform zitadel-up ## Run platform with embedded kcp, console proxy, Zitadel OIDC, and workload cluster
+run-dev: build-platform layer2-dev-up ## Run platform with embedded kcp, console proxy, Zitadel OIDC, and workload cluster
 	./$(BINARY_DIR)/platform start \
 		--embedded-kcp \
 		--dev-mode \
@@ -195,9 +164,30 @@ dev-login: build-cli ## Login to local dev platform via OIDC
 		--hub-url https://localhost:9443 \
 		--insecure-skip-tls-verify
 
+demo-vm: ## Create a demo VM on the workload cluster
+	KUBECONFIG=$(WORKLOAD_KUBECONFIG) kubectl apply -f deploy/layer1-infra/prod/kubevirt/demo-vm.yaml
+	@echo "Waiting for VM to start..."
+	KUBECONFIG=$(WORKLOAD_KUBECONFIG) kubectl wait vm/demo-vm --for=condition=Ready --timeout=180s
+	@echo ""
+	@echo "Demo VM is running. Access it with:"
+	@echo "  KUBECONFIG=$(WORKLOAD_KUBECONFIG) virtctl console demo-vm"
+	@echo "  (login: root / demo)"
+
+demo-vm-clean: ## Delete the demo VM
+	KUBECONFIG=$(WORKLOAD_KUBECONFIG) kubectl delete -f deploy/layer1-infra/prod/kubevirt/demo-vm.yaml --ignore-not-found
+
 # --- Full dev environment lifecycle ---
 
-dev-up: lima-up lima-kubeconfig zitadel-up ## Bring up all dev dependencies (Lima+KubeVirt, Zitadel)
+dev-up: layer1-dev-up layer1-dev-kubeconfig layer2-dev-up ## Bring up all dev dependencies
 	@echo "Dev environment ready. Run 'make run-dev' to start the platform."
 
-dev-down: zitadel-down lima-down ## Tear down all dev dependencies
+dev-down: layer2-dev-down layer1-dev-down ## Tear down all dev dependencies
+
+# --- Backward compatibility aliases ---
+
+lima-up: layer1-dev-up
+lima-down: layer1-dev-down
+lima-kubeconfig: layer1-dev-kubeconfig
+lima-status: layer1-dev-status
+zitadel-up: layer2-dev-up
+zitadel-down: layer2-dev-down

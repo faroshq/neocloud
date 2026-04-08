@@ -10,7 +10,7 @@ make zitadel-up
 
 ## What Happens
 
-Docker Compose starts four services in `dev/zitadel-compose/`:
+Docker Compose starts four services in `deploy/layer2-platform/dev/zitadel-compose/`:
 
 | Service | Image | Role |
 |---------|-------|------|
@@ -39,7 +39,7 @@ Traefik listens on port `8080` and routes:
 
 ## Configuration
 
-Environment variables in `dev/zitadel-compose/.env`:
+Environment variables in `deploy/layer2-platform/dev/zitadel-compose/.env`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -65,7 +65,7 @@ export GITHUB_CLIENT_SECRET=<github-oauth-client-secret>
 export GOOGLE_CLIENT_ID=<google-oauth-client-id>
 export GOOGLE_CLIENT_SECRET=<google-oauth-client-secret>
 
-./deploy/zitadel/setup-oidc.sh
+./deploy/layer2-platform/prod/zitadel/setup-oidc.sh
 ```
 
 This creates:

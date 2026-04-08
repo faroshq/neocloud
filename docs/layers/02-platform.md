@@ -159,7 +159,7 @@ kcp runs on the management cluster, deployed via **kcp-operator**:
 
 For a small deployment (2-3 racks), a single kcp shard is sufficient. kcp supports sharding for scale-out, with the front proxy routing transparently across shards.
 
-> Reference: `deploy/kcp/`
+> Reference: `deploy/layer2-platform/prod/kcp/`
 
 ---
 
@@ -458,7 +458,7 @@ spec:
 
 The cloud operator creates a MetalLB Service of type LoadBalancer and routes traffic to the target resource. The tenant sees back `phase: Allocated` with the assigned public IP address.
 
-> Reference: `deploy/platform-apis/`
+> Reference: `deploy/layer2-platform/prod/platform-apis/`
 
 ---
 
@@ -507,9 +507,9 @@ Adding a new resource type requires: (1) define a new `APIResourceSchema` in kcp
 
 ### Deployment Note
 
-The reference YAML in `deploy/operators/` shows separate operator deployments for clarity and readability. In practice, all reconcilers should be compiled into a **single binary** to reduce operational overhead. One Deployment, one image, multiple reconcilers.
+The reference YAML in `deploy/layer2-platform/prod/operators/` shows separate operator deployments for clarity and readability. In practice, all reconcilers should be compiled into a **single binary** to reduce operational overhead. One Deployment, one image, multiple reconcilers.
 
-> Reference: `deploy/operators/`
+> Reference: `deploy/layer2-platform/prod/operators/`
 
 ---
 
@@ -562,7 +562,7 @@ The onboarding controller does not create anything on the workload cluster. Work
 - **Tier upgrades:** Admin-managed in this layer. Automated tier management via billing is in Layer 3.
 - **Admin override:** Platform admins can adjust any tenant's quotas at any time.
 
-> Reference: `deploy/onboarding/`
+> Reference: `deploy/layer2-platform/prod/onboarding/`
 
 ---
 
@@ -621,7 +621,7 @@ analysis   Ready   https://analysis.tenant-xyz.cloud.example.com
 
 Tenants who prefer kubectl can use it directly. The CLI is a convenience wrapper, not a requirement.
 
-> Reference: `deploy/cli/`
+> Reference: `deploy/layer2-platform/prod/cli/`
 
 ---
 
@@ -657,7 +657,7 @@ The web console in Layer 2 does not include:
 
 These are added in [Layer 3](03-production.md) when billing and metering are integrated.
 
-> Reference: `deploy/console/`
+> Reference: `deploy/layer2-platform/prod/console/`
 
 ---
 
@@ -708,7 +708,7 @@ Tenant-facing metrics are exposed through the web console status page, not Grafa
 - SLA/SLO monitoring and alerting -- Layer 3
 - Per-tenant observability dashboards -- Layer 3
 
-> Reference: `deploy/observability/`
+> Reference: `deploy/layer3-production/prod/observability/`
 
 ---
 

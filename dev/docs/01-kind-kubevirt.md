@@ -62,7 +62,7 @@ make demo-vm-clean
 1. **Kind cluster** created with name `neocloud-workload` using config at `deploy/kind/kind-config.yaml`
 2. **Kubeconfig** saved to `.platform-data/workload-kubeconfig`
 3. **KubeVirt operator** installed from upstream release
-4. **KubeVirt CR** applied from `deploy/kubevirt/kubevirt-cr-kind.yaml` — enables software emulation + GPU/HostDevices feature gates
+4. **KubeVirt CR** applied from `deploy/layer1-infra/prod/kubevirt/kubevirt-cr-kind.yaml` — enables software emulation + GPU/HostDevices feature gates
 5. Waits for KubeVirt to report `Available`
 
 ## Configuration
@@ -93,7 +93,7 @@ Both enable GPU and HostDevices feature gates. The Kind variant adds `useEmulati
 
 ## Demo VM
 
-The demo VM (`deploy/kubevirt/demo-vm.yaml`) uses:
+The demo VM (`deploy/layer1-infra/prod/kubevirt/demo-vm.yaml`) uses:
 - **containerDisk** — the VM image is baked into a container image (`quay.io/kubevirt/alpine-container-disk-demo`, ~50MB). No CDI, PVC, or StorageClass needed.
 - **cloud-init** — sets hostname and root password (`demo`)
 - **256MB RAM, 1 CPU** — minimal resources for Kind
@@ -132,7 +132,7 @@ make kind-down      # delete entire cluster
 
 ## Additional KubeVirt Resources
 
-The `deploy/kubevirt/` directory contains:
+The `deploy/layer1-infra/prod/kubevirt/` directory contains:
 
 | File | Description |
 |------|-------------|
