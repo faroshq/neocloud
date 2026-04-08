@@ -53,6 +53,7 @@ virsh list --all
 virsh dominfo neo-mgmt
 
 # Open serial console to a VM (Ctrl+] to exit)
+# Login: neo / neo
 virsh console neo-mgmt
 
 # Check VM network interfaces and IPs
