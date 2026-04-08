@@ -10,7 +10,9 @@ configMapGenerator:
     namespace: baremetal-operator-system
     behavior: merge
     literals:
+      - IRONIC_IP=172.16.20.10
       - PROVISIONING_INTERFACE=ens4
+      - PROVISIONING_IP=172.16.20.10
       - DHCP_RANGE=172.16.20.100,172.16.20.200
       - DEPLOY_KERNEL_URL=http://172.16.20.10:6180/images/ironic-python-agent.kernel
       - DEPLOY_RAMDISK_URL=http://172.16.20.10:6180/images/ironic-python-agent.initramfs
