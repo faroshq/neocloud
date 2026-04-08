@@ -39,7 +39,7 @@ runcmd:
   - netplan apply
 
   # Install k3s
-  - curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable=traefik --write-kubeconfig-mode=644 --tls-san=0.0.0.0 --tls-san=172.16.30.10 --node-label=node-role.kubernetes.io/management=true" sh -
+  - curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable=traefik --write-kubeconfig-mode=644 --tls-san=0.0.0.0 --tls-san=172.16.30.10 --node-label=node.kubernetes.io/role=management" sh -
 
   # Wait for k3s
   - |
