@@ -63,6 +63,19 @@ spec:
           shell: /bin/bash
       preKubeadmCommands:
         - echo 'neo:neo' | chpasswd
+        # Bring up all interfaces with DHCP (needed for internet via NAT NIC)
+        - |
+          cat > /etc/netplan/99-all-dhcp.yaml << 'EOF'
+          network:
+            version: 2
+            ethernets:
+              allnics:
+                match:
+                  name: "en*"
+                dhcp4: true
+          EOF
+        - netplan apply || true
+        - sleep 5
         - modprobe br_netfilter && modprobe overlay
         - sysctl -w net.bridge.bridge-nf-call-iptables=1
         - sysctl -w net.ipv4.ip_forward=1
