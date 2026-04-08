@@ -71,6 +71,9 @@ spec:
       - chmod 600 /etc/netplan/99-all-dhcp.yaml
       - netplan apply || true
       - sleep 5
+      # Assign the control plane endpoint IP on the baremetal NIC
+      - ip addr add 172.16.30.20/24 dev ens4 || true
+      - ip link set ens4 up || true
       - modprobe br_netfilter && modprobe overlay
       - sysctl -w net.bridge.bridge-nf-call-iptables=1
       - sysctl -w net.ipv4.ip_forward=1
@@ -83,6 +86,9 @@ spec:
       - echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /" > /etc/apt/sources.list.d/kubernetes.list
       - apt-get update && apt-get install -y kubelet kubeadm kubectl && apt-mark hold kubelet kubeadm kubectl
     initConfiguration:
+      localAPIEndpoint:
+        advertiseAddress: "172.16.30.20"
+        bindPort: 6443
       nodeRegistration:
         kubeletExtraArgs:
           cloud-provider: ""
