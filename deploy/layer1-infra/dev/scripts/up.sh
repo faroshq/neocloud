@@ -38,10 +38,10 @@ if [ "$(uname)" != "Linux" ]; then
 fi
 
 # --- Preflight checks ---
-for cmd in virsh qemu-img genisoimage sushy-emulator clusterctl; do
+for cmd in virsh qemu-img genisoimage sushy-emulator clusterctl sshpass; do
   if ! command -v "${cmd}" &>/dev/null; then
     echo "ERROR: '${cmd}' not found. Install prerequisites:"
-    echo "  sudo apt install libvirt-daemon-system qemu-kvm virtinst genisoimage pipx"
+    echo "  sudo apt install libvirt-daemon-system qemu-kvm virtinst genisoimage pipx sshpass"
     echo "  pipx install sushy-tools"
     echo "  curl -L https://github.com/kubernetes-sigs/cluster-api/releases/latest/download/clusterctl-linux-amd64 -o /usr/local/bin/clusterctl && chmod +x /usr/local/bin/clusterctl"
     exit 1
@@ -206,11 +206,11 @@ if [ -z "${MGMT_IP}" ]; then
 fi
 
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-ssh ${SSH_OPTS} "neo@${MGMT_IP}" "sudo mkdir -p /shared/html/images" 2>/dev/null
-scp ${SSH_OPTS} "${IPA_KERNEL}" "neo@${MGMT_IP}:/tmp/ironic-python-agent.kernel" 2>/dev/null
-scp ${SSH_OPTS} "${IPA_RAMDISK}" "neo@${MGMT_IP}:/tmp/ironic-python-agent.initramfs" 2>/dev/null
-scp ${SSH_OPTS} "${FLATCAR_IMG}" "neo@${MGMT_IP}:/tmp/flatcar.img" 2>/dev/null
-ssh ${SSH_OPTS} "neo@${MGMT_IP}" "sudo mv /tmp/ironic-python-agent.kernel /tmp/ironic-python-agent.initramfs /tmp/flatcar.img /shared/html/images/" 2>/dev/null
+sshpass -p neo ssh ${SSH_OPTS} "neo@${MGMT_IP}" "sudo mkdir -p /shared/html/images" 2>/dev/null
+sshpass -p neo scp ${SSH_OPTS} "${IPA_KERNEL}" "neo@${MGMT_IP}:/tmp/ironic-python-agent.kernel" 2>/dev/null
+sshpass -p neo scp ${SSH_OPTS} "${IPA_RAMDISK}" "neo@${MGMT_IP}:/tmp/ironic-python-agent.initramfs" 2>/dev/null
+sshpass -p neo scp ${SSH_OPTS} "${FLATCAR_IMG}" "neo@${MGMT_IP}:/tmp/flatcar.img" 2>/dev/null
+sshpass -p neo ssh ${SSH_OPTS} "neo@${MGMT_IP}" "sudo mv /tmp/ironic-python-agent.kernel /tmp/ironic-python-agent.initramfs /tmp/flatcar.img /shared/html/images/" 2>/dev/null
 info "  Images copied to mgmt VM."
 
 # --- Step 7: Register BareMetalHosts ---

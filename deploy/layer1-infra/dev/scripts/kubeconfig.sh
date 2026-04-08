@@ -25,9 +25,10 @@ if [ -z "${MGMT_IP}" ]; then
   exit 1
 fi
 
-scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+sshpass -p neo scp ${SSH_OPTS} \
   "neo@${MGMT_IP}:/root/kubeconfig-external" "${KUBECONFIG_PATH}" 2>/dev/null || \
-  ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  sshpass -p neo ssh ${SSH_OPTS} \
     "neo@${MGMT_IP}" "sudo cat /root/kubeconfig-external" > "${KUBECONFIG_PATH}"
 
 echo "==> Kubeconfig written to ${KUBECONFIG_PATH}"
