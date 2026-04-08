@@ -19,3 +19,4 @@ configMapGenerator:
       - IRONIC_ENDPOINT=http://172.16.20.10:6385/v1/
       - IRONIC_KERNEL_PARAMS=console=ttyS0
       - IRONIC_FAST_TRACK=true
+      - IRONIC_BASE_URL=http://172.16.20.10:6385
