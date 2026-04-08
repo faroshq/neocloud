@@ -198,10 +198,14 @@ for cm in $(kubectl -n baremetal-operator-system get configmap -o name | grep ir
     '{"data":{"IRONIC_IP":"172.16.20.10","IRONIC_BASE_URL":"http://172.16.20.10:6385","PROVISIONING_IP":"172.16.20.10","PROVISIONING_INTERFACE":"ens4","DHCP_RANGE":"172.16.20.100,172.16.20.200","DEPLOY_KERNEL_URL":"http://172.16.20.10:6180/images/ironic-python-agent.kernel","DEPLOY_RAMDISK_URL":"http://172.16.20.10:6180/images/ironic-python-agent.initramfs","IRONIC_ENDPOINT":"http://172.16.20.10:6385/v1/","IRONIC_FAST_TRACK":"true"}}'
 done
 
-# Restart deployments to pick up patched configmaps
-kubectl -n baremetal-operator-system rollout restart deployment baremetal-operator-controller-manager
-kubectl -n baremetal-operator-system rollout restart deployment baremetal-operator-ironic
-kubectl -n baremetal-operator-system wait --for=condition=Available deployment --all --timeout=300s
+# Restart deployments to pick up patched configmaps — only if not already running with correct config
+IRONIC_READY=$(kubectl -n baremetal-operator-system get deployment baremetal-operator-ironic -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+if [ "${IRONIC_READY}" = "0" ] || [ -z "${IRONIC_READY}" ]; then
+  info "Restarting deployments to pick up configmaps..."
+  kubectl -n baremetal-operator-system rollout restart deployment baremetal-operator-controller-manager
+  kubectl -n baremetal-operator-system rollout restart deployment baremetal-operator-ironic
+fi
+kubectl -n baremetal-operator-system wait --for=condition=Available deployment --all --timeout=600s
 
 # Copy worker image into Ironic pod (serves from emptyDir /shared/html/images)
 # IPA images are already there from the ipa-downloader init container.
