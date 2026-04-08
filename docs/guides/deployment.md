@@ -42,14 +42,14 @@
 
 ## 1. Introduction
 
-This document provides production-grade deployment instructions for the sovereign small cloud reference architecture described in `whitepaper.md`. It assumes familiarity with:
+This document provides production-grade deployment instructions for the sovereign small cloud reference architecture described in [`whitepaper.md`](../architecture/whitepaper.md). It assumes familiarity with:
 
 - Kubernetes administration (kubeadm, Helm, kubectl)
 - Linux system administration
 - Networking fundamentals (VLANs, BGP concepts, DNS)
 - Bare metal server management (IPMI/BMC)
 
-**This is NOT the demo guide.** For a quick demo setup, see `demo.md`. This document covers the full production deployment path including Metal3, Flatcar, Rook-Ceph, HA considerations, and security hardening.
+**This is NOT the demo guide.** For a quick demo setup, see [`demo.md`](demo.md). This document covers the full production deployment path including Metal3, Flatcar, Rook-Ceph, HA considerations, and security hardening.
 
 ### Deployment Personas
 
@@ -1255,7 +1255,7 @@ helm install openmeter openmeter/openmeter \
 
 Configure meters for CPU, memory, and GPU usage. Deploy the K8s collector DaemonSet on the workload cluster. Configure billing plans (free, pay-as-you-go, prepaid, enterprise) via the OpenMeter API.
 
-See `whitepaper.md` Section 14 for meter definitions and billing plan configuration details.
+See [`whitepaper.md`](../architecture/whitepaper.md) Section 14 for meter definitions and billing plan configuration details.
 
 ---
 
@@ -1270,7 +1270,7 @@ Create APIResourceSchemas and APIExports in the platform workspace for:
 - `Volume` (block storage)
 - `ObjectBucket` (S3 buckets)
 
-See `whitepaper.md` Section 10 for full API schemas.
+See [`whitepaper.md`](../architecture/whitepaper.md) Section 10 for full API schemas.
 
 ### 16.2 Deploy Service Operators
 

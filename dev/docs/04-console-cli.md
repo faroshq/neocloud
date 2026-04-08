@@ -2,7 +2,7 @@
 
 ## Web Console
 
-The console is a Piral micro-frontend in `project/console/`.
+The console is a Piral micro-frontend in `src/console/`.
 
 ### Dev Mode (Hot Reload)
 
@@ -17,7 +17,7 @@ When the platform server is running, it proxies the console at `https://localhos
 ### Production Build
 
 ```bash
-make build-console   # builds to project/console/app-shell/dist/
+make build-console   # builds to src/console/app-shell/dist/
 make docker-console  # builds Docker image
 make run-console     # runs Docker image on :4466
 ```
@@ -25,7 +25,7 @@ make run-console     # runs Docker image on :4466
 ### Console Structure
 
 ```
-project/console/
+src/console/
 ├── app-shell/       # Piral app shell (main entry point)
 │   ├── src/
 │   └── package.json

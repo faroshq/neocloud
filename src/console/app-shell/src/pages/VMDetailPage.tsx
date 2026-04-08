@@ -12,6 +12,7 @@ import {
   DialogActions,
   alpha,
   Tooltip,
+  IconButton,
   LinearProgress,
   linearProgressClasses,
 } from '@mui/material';
@@ -211,6 +212,46 @@ const RootPasswordCopy: React.FC<{ status: Record<string, unknown> }> = ({ statu
       {error && (
         <Typography sx={{ fontSize: '0.75rem', color: '#f87171' }}>{error}</Typography>
       )}
+    </Box>
+  );
+};
+
+const SshCommandCopy: React.FC<{ vmName: string }> = ({ vmName }) => {
+  const [copied, setCopied] = React.useState(false);
+  const command = `ssh -o 'ProxyCommand=platform-cli ssh-proxy ${vmName}' root@${vmName}`;
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(command);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <Box
+      sx={{
+        display: 'flex', alignItems: 'center', gap: 1,
+        bgcolor: 'rgba(0,0,0,0.3)', borderRadius: 1.5, px: 2, py: 1.25,
+        border: '1px solid rgba(255,255,255,0.06)',
+        fontFamily: 'monospace',
+      }}
+    >
+      <Typography sx={{ fontSize: '0.8125rem', color: '#52525b', mr: 0.5, userSelect: 'none' }}>$</Typography>
+      <Typography sx={{ fontSize: '0.8125rem', color: '#e4e4e7', flex: 1, fontFamily: 'monospace' }}>
+        {command}
+      </Typography>
+      <Tooltip title={copied ? 'Copied!' : 'Copy to clipboard'} arrow>
+        <IconButton
+          size="small"
+          onClick={handleCopy}
+          sx={{
+            color: copied ? '#34d399' : '#52525b',
+            transition: 'color 0.2s ease',
+            '&:hover': { color: '#818cf8', bgcolor: alpha('#818cf8', 0.1) },
+          }}
+        >
+          <ContentCopyRoundedIcon sx={{ fontSize: 14 }} />
+        </IconButton>
+      </Tooltip>
     </Box>
   );
 };
@@ -515,6 +556,22 @@ export const VMDetailPage: React.FC = () => {
         </Paper>
       </Box>
 
+      {/* ── SSH connect ── */}
+      {phase === 'Running' && (
+        <Paper sx={{ p: 0, overflow: 'hidden', mb: 2.5, animation: `${fadeInUp} 0.5s ease-out 0.12s both` }}>
+          <Box sx={{ px: 2.5, py: 1.5, borderBottom: '1px solid rgba(255,255,255,0.06)', bgcolor: 'rgba(255,255,255,0.02)', display: 'flex', alignItems: 'center', gap: 1 }}>
+            <TerminalRoundedIcon sx={{ fontSize: 14, color: '#52525b' }} />
+            <Typography sx={{ fontSize: '0.8125rem', fontWeight: 600 }}>Connect</Typography>
+          </Box>
+          <Box sx={{ p: 2.5 }}>
+            <Typography sx={{ fontSize: '0.75rem', color: '#71717a', mb: 1.5 }}>
+              Connect to this VM via the platform CLI:
+            </Typography>
+            <SshCommandCopy vmName={vm.metadata.name} />
+          </Box>
+        </Paper>
+      )}
+
       {/* ── conditions timeline ── */}
       {conditions.length > 0 && (
         <Paper sx={{ p: 0, overflow: 'hidden', animation: `${fadeInUp} 0.5s ease-out 0.15s both` }}>
@@ -523,7 +580,10 @@ export const VMDetailPage: React.FC = () => {
           </Box>
           <Box sx={{ p: 2.5 }}>
             {conditions.map((c, i) => {
-              const ok = c.status === 'True';
+              // Negative-polarity conditions: False = healthy (completed/resolved)
+              const negativePolarityTypes = ['Progressing', 'Provisioning'];
+              const isNegativePolarity = negativePolarityTypes.includes(c.type);
+              const ok = isNegativePolarity ? c.status === 'False' : c.status === 'True';
               return (
                 <Box
                   key={i}

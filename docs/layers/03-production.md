@@ -124,7 +124,7 @@ Any of these could replace OpenMeter. The integration points (CloudEvents in, en
 ### Reference Files
 
 ```
-deploy/openmeter/
+deploy/_untested/openmeter/
   namespace.yaml              # OpenMeter namespace
   helm-values.yaml            # Helm chart configuration
   collector-daemonset.yaml    # K8s collector DaemonSet (workload cluster)
@@ -284,7 +284,7 @@ On upgrade, the billing controller: (1) verifies payment method or credit balanc
 ### Reference Files
 
 ```
-deploy/quota/
+deploy/_untested/quota/
   quota-webhook.yaml          # kcp admission webhook for entitlements
   quota-controller.yaml       # Credit balance monitor
 ```
@@ -437,7 +437,7 @@ Velero backs up Kubernetes resources and persistent volumes. It supports schedul
 
 ### etcd Snapshot CronJob
 
-A CronJob on each cluster takes hourly etcd snapshots and uploads them to Ceph object storage (S3-compatible via RGW). The CronJob uses the standard `etcdctl snapshot save` command and uploads via the AWS CLI pointed at the Ceph RGW endpoint. See `deploy/backup/etcd-snapshot-cronjob.yaml` for the full manifest.
+A CronJob on each cluster takes hourly etcd snapshots and uploads them to Ceph object storage (S3-compatible via RGW). The CronJob uses the standard `etcdctl snapshot save` command and uploads via the AWS CLI pointed at the Ceph RGW endpoint. See `deploy/_untested/backup/etcd-snapshot-cronjob.yaml` for the full manifest.
 
 ### Backup Schedule Summary
 
@@ -451,7 +451,7 @@ A CronJob on each cluster takes hourly etcd snapshots and uploads them to Ceph o
 ### Reference Files
 
 ```
-deploy/backup/
+deploy/_untested/backup/
   velero-values.yaml          # Velero Helm configuration
   etcd-snapshot-cronjob.yaml  # etcd snapshot CronJob
   pg-backup-cronjob.yaml     # PostgreSQL backup CronJob

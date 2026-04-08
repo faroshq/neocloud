@@ -669,7 +669,7 @@ EOF
 
 ```bash
 # On workload cluster
-kubectl --kubeconfig=workload.kubeconfig apply -f deploy/openmeter-collector.yaml
+kubectl --kubeconfig=workload.kubeconfig apply -f deploy/_untested/openmeter/collector-daemonset.yaml
 ```
 
 ### Configure Stripe (Test Mode)
@@ -687,7 +687,7 @@ kubectl create secret generic stripe-credentials \
 
 ```bash
 # Deploy kcp admission webhook that checks OpenMeter entitlements
-kubectl apply -f deploy/quota-controller.yaml
+kubectl apply -f deploy/_untested/quota/quota-controller.yaml
 ```
 
 ---

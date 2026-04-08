@@ -10,7 +10,7 @@ make zitadel-up
 
 ## What Happens
 
-Docker Compose starts four services in `project/zitadel-compose/`:
+Docker Compose starts four services in `dev/zitadel-compose/`:
 
 | Service | Image | Role |
 |---------|-------|------|
@@ -39,7 +39,7 @@ Traefik listens on port `8080` and routes:
 
 ## Configuration
 
-Environment variables in `project/zitadel-compose/.env`:
+Environment variables in `dev/zitadel-compose/.env`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -80,10 +80,10 @@ This creates:
 curl -s http://localhost:8080/.well-known/openid-configuration | jq .issuer
 
 # Docker Compose status
-cd project/zitadel-compose && docker compose ps
+cd dev/zitadel-compose && docker compose ps
 
 # Logs
-cd project/zitadel-compose && docker compose logs -f zitadel-api
+cd dev/zitadel-compose && docker compose logs -f zitadel-api
 ```
 
 ## Tear Down
@@ -97,5 +97,5 @@ This stops all containers. Data is persisted in Docker volumes (`postgres-data`,
 To fully reset Zitadel (including data):
 
 ```bash
-cd project/zitadel-compose && docker compose down -v
+cd dev/zitadel-compose && docker compose down -v
 ```

@@ -6,7 +6,7 @@
 **Date:** 2026-03-26
 **Status:** Working Draft
 
-> **This is where the demo lives.** This layer is the primary demonstration target for the sovereign small cloud reference architecture. See [demo.md](demo.md) for step-by-step instructions.
+> **This is where the demo lives.** This layer is the primary demonstration target for the sovereign small cloud reference architecture. See [demo.md](../guides/demo.md) for step-by-step instructions.
 
 ---
 
@@ -193,7 +193,7 @@ Dex is a pure broker -- it authenticates users via upstream providers and issues
 
 ### Upgrading to Zitadel (Layer 3)
 
-When you need user management, API keys (PATs), device authorization for CLI, or org/team hierarchy, upgrade to **Zitadel** (see `03-production.md`). The swap is seamless -- only `--oidc-issuer-url` changes on kcp.
+When you need user management, API keys (PATs), device authorization for CLI, or org/team hierarchy, upgrade to **Zitadel** (see [`03-production.md`](03-production.md)). The swap is seamless -- only `--oidc-issuer-url` changes on kcp.
 
 ### Interface-Based Design
 
@@ -737,7 +737,7 @@ No BSL, SSPL, or proprietary licenses in the stack. Grafana (AGPL-3.0) is the on
 
 ## 12. Demo
 
-> **This layer is the demo.** See [demo.md](demo.md) for full step-by-step instructions.
+> **This layer is the demo.** See [demo.md](../guides/demo.md) for full step-by-step instructions.
 
 ### Quick Demo Flow
 

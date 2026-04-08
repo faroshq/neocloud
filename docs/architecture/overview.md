@@ -264,7 +264,7 @@ Billing is **not required** to run the platform. It's an optional layer that plu
 
 ## Production Stack (Full Version)
 
-When you need the full production setup, see `whitepaper.md`. The full stack adds:
+When you need the full production setup, see [`whitepaper.md`](whitepaper.md). The full stack adds:
 
 | Layer | Component | Purpose |
 |-------|-----------|---------|
@@ -304,17 +304,17 @@ No BSL, SSPL, or proprietary licenses. No commercial components required.
 
 | Document | Layer | What it covers |
 |----------|-------|---------------|
-| **01-infrastructure.md** | Layer 1 | Bare metal → K8s (Metal3, Flatcar, Kube-OVN, Ceph, GPU, KubeVirt) |
-| **02-platform.md** | Layer 2 | Multi-tenant cloud APIs (kcp, Identity, Cloud Operator, CLI, Console) — **demo lives here** |
-| **03-production.md** | Layer 3 | Productionization (billing, metering, monitoring, backup, day-2 ops) |
+| **[01-infrastructure.md](../layers/01-infrastructure.md)** | Layer 1 | Bare metal → K8s (Metal3, Flatcar, Kube-OVN, Ceph, GPU, KubeVirt) |
+| **[02-platform.md](../layers/02-platform.md)** | Layer 2 | Multi-tenant cloud APIs (kcp, Identity, Cloud Operator, CLI, Console) — **demo lives here** |
+| **[03-production.md](../layers/03-production.md)** | Layer 3 | Productionization (billing, metering, monitoring, backup, day-2 ops) |
 
 ### Other Documents
 
 | Document | What it is | Audience |
 |----------|-----------|----------|
 | **overview.md** (this file) | Simplified architecture overview | Everyone |
-| **deployment.md** | Production deployment guide (20 phases) | Platform operators |
-| **demo.md** | Quick demo setup guide | Developers, demo presenters |
+| **[deployment.md](../guides/deployment.md)** | Production deployment guide (20 phases) | Platform operators |
+| **[demo.md](../guides/demo.md)** | Quick demo setup guide | Developers, demo presenters |
 | **deploy/** | 83 YAML manifests for all components | Platform operators |
 
 ---
@@ -333,4 +333,4 @@ No BSL, SSPL, or proprietary licenses. No commercial components required.
 
 Total time: **~2 hours** for someone familiar with Kubernetes.
 
-See `demo.md` for step-by-step instructions.
+See [`demo.md`](../guides/demo.md) for step-by-step instructions.

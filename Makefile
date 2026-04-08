@@ -1,7 +1,7 @@
 .PHONY: build build-platform build-cli build-console clean generate lint test tidy codegen crds tools verify-codegen docker-console run-console console-dev zitadel-up zitadel-down run-dev dev-login lima-up lima-down lima-kubeconfig lima-ssh lima-status demo-vm demo-vm-clean dev-up dev-down
 
-PLATFORM_DIR := project/platform
-CONSOLE_DIR := project/console
+PLATFORM_DIR := src/platform
+CONSOLE_DIR := src/console
 BINARY_DIR := bin
 
 # Tool versions (matching kedge)
@@ -94,9 +94,9 @@ tidy:
 # https://localhost:10443/ui/console?login_hint=zitadel-admin@zitadel.localhost 
 
 
-ZITADEL_COMPOSE_DIR := project/zitadel-compose
+ZITADEL_COMPOSE_DIR := dev/zitadel-compose
 LIMA_VM_NAME ?= kubevirt-dev
-LIMA_CONFIG := deploy/lima/kubevirt-dev.yaml
+LIMA_CONFIG := dev/lima/kubevirt-dev.yaml
 KUBEVIRT_VERSION ?= v1.8.1
 WORKLOAD_KUBECONFIG ?= .platform-data/workload-kubeconfig
 
@@ -143,7 +143,7 @@ lima-down: ## Delete Lima KubeVirt VM
 	@echo "Lima VM '$(LIMA_VM_NAME)' deleted."
 
 demo-vm: ## Create a demo VM on the workload cluster
-	KUBECONFIG=$(WORKLOAD_KUBECONFIG) kubectl apply -f deploy/kubevirt/demo-vm.yaml
+	KUBECONFIG=$(WORKLOAD_KUBECONFIG) kubectl apply -f deploy/_untested/kubevirt/demo-vm.yaml
 	@echo "Waiting for VM to start..."
 	KUBECONFIG=$(WORKLOAD_KUBECONFIG) kubectl wait vm/demo-vm --for=condition=Ready --timeout=180s
 	@echo ""
@@ -152,7 +152,7 @@ demo-vm: ## Create a demo VM on the workload cluster
 	@echo "  (login: root / demo)"
 
 demo-vm-clean: ## Delete the demo VM
-	KUBECONFIG=$(WORKLOAD_KUBECONFIG) kubectl delete -f deploy/kubevirt/demo-vm.yaml --ignore-not-found
+	KUBECONFIG=$(WORKLOAD_KUBECONFIG) kubectl delete -f deploy/_untested/kubevirt/demo-vm.yaml --ignore-not-found
 
 # --- Zitadel ---
 

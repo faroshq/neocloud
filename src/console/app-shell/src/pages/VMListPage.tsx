@@ -20,12 +20,14 @@ import {
   InputAdornment,
   TextField,
   alpha,
+  Tooltip,
 } from '@mui/material';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DnsRoundedIcon from '@mui/icons-material/DnsRounded';
+import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import { useNavigate } from 'react-router-dom';
 import { vmApi, type K8sResource } from './api';
 import { keyframes } from '@emotion/react';
@@ -46,13 +48,46 @@ const statusConfig: Record<
   Stopped: { color: '#52525b', animate: false },
 };
 
-const StatusDot: React.FC<{ phase: string }> = ({ phase }) => {
+// Negative-polarity conditions: False = healthy (completed/resolved)
+const negativePolarityTypes = ['Progressing', 'Provisioning'];
+
+function isConditionHealthy(c: { type: string; status: string }): boolean {
+  return negativePolarityTypes.includes(c.type)
+    ? c.status === 'False'
+    : c.status === 'True';
+}
+
+const ConditionChip: React.FC<{ type: string; ok: boolean }> = ({ type, ok }) => {
+  const color = ok ? '#34d399' : '#f87171';
+  return (
+    <Box
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 0.5,
+        px: 0.75,
+        py: 0.125,
+        borderRadius: 0.75,
+        bgcolor: alpha(color, 0.1),
+        border: '1px solid',
+        borderColor: alpha(color, 0.2),
+      }}
+    >
+      <Box sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: color }} />
+      <Typography sx={{ fontSize: '0.625rem', fontWeight: 600, color }}>
+        {type}
+      </Typography>
+    </Box>
+  );
+};
+
+const StatusDot: React.FC<{ phase: string; conditions?: Array<{ type: string; status: string; reason?: string }> }> = ({ phase, conditions }) => {
   const config = statusConfig[phase] || {
     color: '#52525b',
     animate: false,
   };
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
       <Box
         sx={{
           width: 7,
@@ -74,6 +109,56 @@ const StatusDot: React.FC<{ phase: string }> = ({ phase }) => {
       >
         {phase}
       </Typography>
+      {conditions && conditions.length > 0 && (
+        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+          {conditions.map((c) => (
+            <ConditionChip key={c.type} type={c.type} ok={isConditionHealthy(c)} />
+          ))}
+        </Box>
+      )}
+    </Box>
+  );
+};
+
+const SshCopyCell: React.FC<{ vmName: string }> = ({ vmName }) => {
+  const [copied, setCopied] = React.useState(false);
+  const command = `ssh -o 'ProxyCommand=platform-cli ssh-proxy ${vmName}' root@${vmName}`;
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(command);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+      <Typography
+        sx={{
+          fontSize: '0.75rem',
+          color: '#a1a1aa',
+          fontFamily: 'monospace',
+          bgcolor: 'rgba(0,0,0,0.2)',
+          px: 1,
+          py: 0.25,
+          borderRadius: 0.75,
+          border: '1px solid rgba(255,255,255,0.06)',
+        }}
+      >
+        {command}
+      </Typography>
+      <Tooltip title={copied ? 'Copied!' : 'Copy'} arrow>
+        <IconButton
+          size="small"
+          onClick={handleCopy}
+          sx={{
+            color: copied ? '#34d399' : '#52525b',
+            p: 0.5,
+            '&:hover': { color: '#818cf8', bgcolor: alpha('#818cf8', 0.1) },
+          }}
+        >
+          <ContentCopyRoundedIcon sx={{ fontSize: 13 }} />
+        </IconButton>
+      </Tooltip>
     </Box>
   );
 };
@@ -214,7 +299,7 @@ export const VMListPage: React.FC = () => {
               <TableCell>Memory</TableCell>
               <TableCell>Image</TableCell>
               <TableCell>GPU</TableCell>
-              <TableCell>IP Address</TableCell>
+              <TableCell>Connect</TableCell>
               <TableCell align="right" sx={{ width: 100 }}>
                 Actions
               </TableCell>
@@ -280,6 +365,7 @@ export const VMListPage: React.FC = () => {
                   unknown
                 >;
                 const phase = (status.phase as string) || 'Unknown';
+                const conditions = (status.conditions as Array<{ type: string; status: string; reason?: string }>) || [];
                 const internalIP =
                   (status.internalIP as string) || '';
                 return (
@@ -308,7 +394,7 @@ export const VMListPage: React.FC = () => {
                       </Typography>
                     </TableCell>
                     <TableCell>
-                      <StatusDot phase={phase} />
+                      <StatusDot phase={phase} conditions={conditions} />
                     </TableCell>
                     <TableCell>
                       <Typography
@@ -359,16 +445,20 @@ export const VMListPage: React.FC = () => {
                         {(gpu.count as number) || 0}
                       </Typography>
                     </TableCell>
-                    <TableCell>
-                      <Typography
-                        sx={{
-                          fontSize: '0.8125rem',
-                          color: '#a1a1aa',
-                          fontFamily: 'monospace',
-                        }}
-                      >
-                        {internalIP || '-'}
-                      </Typography>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      {phase === 'Running' ? (
+                        <SshCopyCell vmName={vm.metadata.name} />
+                      ) : (
+                        <Typography
+                          sx={{
+                            fontSize: '0.75rem',
+                            color: '#52525b',
+                            fontStyle: 'italic',
+                          }}
+                        >
+                          -
+                        </Typography>
+                      )}
                     </TableCell>
                     <TableCell
                       align="right"

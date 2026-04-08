@@ -256,7 +256,7 @@ The bare metal provisioning layer is interface-based. The platform can work with
 - **Manual / cloud-init** — for hosted machines without BMC access (demo path)
 - **PXE + Ansible** — traditional approach, works but not declarative
 
-> See `deploy/metal3/` for Metal3 deployment manifests.
+> See `deploy/_untested/metal3/` for Metal3 deployment manifests.
 
 ---
 
@@ -349,7 +349,7 @@ spec:
     name: workload-1
 ```
 
-> See `deploy/management-cluster/` and `deploy/workload-cluster/` for full manifests.
+> See `deploy/_untested/management-cluster/` and `deploy/_untested/workload-cluster/` for full manifests.
 
 ---
 
@@ -763,7 +763,7 @@ GPU sharing is documented but not implemented in v1. Options for future versions
 
 **Recommended upgrade path:** MIG on supported GPUs (A100+), HAMi (CNCF Sandbox, Apache 2.0) for older or multi-vendor GPUs.
 
-> See `deploy/gpu/` for GPU Operator deployment manifests.
+> See `deploy/_untested/gpu/` for GPU Operator deployment manifests.
 
 ---
 
@@ -1025,12 +1025,12 @@ Several Layer 1 components have EU origins:
 
 | Component | Deploy Path |
 |-----------|------------|
-| Metal3 | `deploy/metal3/` |
-| Management cluster | `deploy/management-cluster/` |
-| Workload cluster | `deploy/workload-cluster/` |
+| Metal3 | `deploy/_untested/metal3/` |
+| Management cluster | `deploy/_untested/management-cluster/` |
+| Workload cluster | `deploy/_untested/workload-cluster/` |
 | Kube-OVN | `deploy/kube-ovn/` |
 | Rook-Ceph | `deploy/storage/` |
-| GPU Operator | `deploy/gpu/` |
+| GPU Operator | `deploy/_untested/gpu/` |
 | KubeVirt | `deploy/kubevirt/` |
 | gVisor | `deploy/kubevirt/gvisor-runtimeclass.yaml` |
 | Security | `deploy/security/` |

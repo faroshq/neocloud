@@ -22,13 +22,16 @@ Layer 1: Infrastructure        Bare metal → Kubernetes (Metal3, Flatcar,
 
 | Document | What it covers |
 |----------|---------------|
-| [01-infrastructure.md](01-infrastructure.md) | **Layer 1:** From bare metal to compute-ready K8s |
-| [02-platform.md](02-platform.md) | **Layer 2:** Multi-tenant cloud APIs with kcp — **demo lives here** |
-| [03-production.md](03-production.md) | **Layer 3:** Billing, monitoring, backup, operations |
-| [overview.md](overview.md) | Simplified architecture overview |
-| [deployment.md](deployment.md) | Production deployment guide (20 phases) |
-| [demo.md](demo.md) | Quick demo setup guide |
-| [deploy/](deploy/) | 83 YAML manifests for all components |
+| [docs/layers/01-infrastructure.md](docs/layers/01-infrastructure.md) | **Layer 1:** From bare metal to compute-ready K8s |
+| [docs/layers/02-platform.md](docs/layers/02-platform.md) | **Layer 2:** Multi-tenant cloud APIs with kcp — **demo lives here** |
+| [docs/layers/03-production.md](docs/layers/03-production.md) | **Layer 3:** Billing, monitoring, backup, operations |
+| [docs/architecture/overview.md](docs/architecture/overview.md) | Simplified architecture overview |
+| [docs/architecture/whitepaper.md](docs/architecture/whitepaper.md) | Full whitepaper |
+| [docs/guides/deployment.md](docs/guides/deployment.md) | Production deployment guide |
+| [docs/guides/demo.md](docs/guides/demo.md) | Quick demo setup guide |
+| [dev/docs/](dev/docs/) | Local dev setup guides |
+| [deploy/](deploy/) | Production manifests |
+| [src/](src/) | Source code (platform + console) |
 
 ## Core Stack
 
