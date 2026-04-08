@@ -175,113 +175,115 @@ info "Getting kubeconfig from management VM..."
 "${SCRIPT_DIR}/kubeconfig.sh"
 export KUBECONFIG="${REPO_ROOT}/.platform-data/workload-kubeconfig"
 
-info "Installing cert-manager..."
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
-kubectl -n cert-manager wait --for=condition=Available deployment --all --timeout=300s
-
-info "Installing Cluster API + Metal3 provider..."
-clusterctl init --infrastructure metal3
-
-info "Installing Bare Metal Operator ${BMO_VERSION}..."
-kubectl apply -f "https://github.com/metal3-io/baremetal-operator/releases/download/${BMO_VERSION}/baremetal-operator.yaml"
-kubectl -n baremetal-operator-system wait --for=condition=Available deployment --all --timeout=300s
-
-info "Deploying Ironic..."
-kubectl apply -k "${DEV_DIR}/metal3/ironic"
-
-# Patch configmaps with our provisioning network IPs
-# (kustomize patches may not merge correctly with hashed configmap names)
-kubectl -n baremetal-operator-system patch configmap ironic --type merge -p \
-  '{"data":{"IRONIC_ENDPOINT":"http://172.16.20.10:6385/v1/","PROVISIONING_INTERFACE":"ens4","DHCP_RANGE":"172.16.20.100,172.16.20.200","CACHEURL":"http://172.16.20.10:6180/images"}}'
-for cm in $(kubectl -n baremetal-operator-system get configmap -o name | grep ironic-bmo-configmap); do
-  kubectl -n baremetal-operator-system patch "${cm}" --type merge -p \
-    '{"data":{"IRONIC_IP":"172.16.20.10","IRONIC_BASE_URL":"http://172.16.20.10:6385","PROVISIONING_IP":"172.16.20.10","PROVISIONING_INTERFACE":"ens4","DHCP_RANGE":"172.16.20.100,172.16.20.200","DEPLOY_KERNEL_URL":"http://172.16.20.10:6180/images/ironic-python-agent.kernel","DEPLOY_RAMDISK_URL":"http://172.16.20.10:6180/images/ironic-python-agent.initramfs","IRONIC_ENDPOINT":"http://172.16.20.10:6385/v1/","IRONIC_FAST_TRACK":"true"}}'
-done
-
-# Restart deployments to pick up patched configmaps — only if not already running with correct config
-IRONIC_READY=$(kubectl -n baremetal-operator-system get deployment baremetal-operator-ironic -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-if [ "${IRONIC_READY}" = "0" ] || [ -z "${IRONIC_READY}" ]; then
-  info "Restarting deployments to pick up configmaps..."
-  kubectl -n baremetal-operator-system rollout restart deployment baremetal-operator-controller-manager
-  kubectl -n baremetal-operator-system rollout restart deployment baremetal-operator-ironic
-fi
-kubectl -n baremetal-operator-system wait --for=condition=Available deployment --all --timeout=600s
-
-# Copy worker image into Ironic pod (serves from emptyDir /shared/html/images)
-# IPA images are already there from the ipa-downloader init container.
-info "Copying Ubuntu worker image into Ironic pod..."
-IRONIC_NS="baremetal-operator-system"
-
-# Wait for Ironic pod to be Running and all containers ready
-# (rollout restart creates a new pod; init container downloads IPA images which takes time)
-info "  Waiting for Ironic pod to be ready (this may take a few minutes for IPA download)..."
-IRONIC_POD=""
-for i in $(seq 1 120); do
-  IRONIC_POD=$(kubectl -n "${IRONIC_NS}" get pods -o name 2>/dev/null | grep baremetal-operator-ironic | head -1 | sed 's|pod/||' || true)
-  if [ -n "${IRONIC_POD}" ]; then
-    READY=$(kubectl -n "${IRONIC_NS}" get pod "${IRONIC_POD}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
-    if [ "${READY}" = "True" ]; then
-      info "  Ironic pod ${IRONIC_POD} is ready."
-      break
-    fi
+# Check if the workload cluster is already running (rerun detection)
+WORKLOAD_KUBECONFIG_TMP="${NEO_DATADIR}/workload-kubeconfig"
+if kubectl get secret workload-cluster-kubeconfig -n metal3 -o jsonpath='{.data.value}' 2>/dev/null | base64 -d > "${WORKLOAD_KUBECONFIG_TMP}" 2>/dev/null; then
+  if KUBECONFIG="${WORKLOAD_KUBECONFIG_TMP}" kubectl get nodes &>/dev/null; then
+    info "Workload cluster already running — skipping Metal3/CAPI provisioning."
+    SKIP_PROVISIONING=true
   fi
-  if [ $((i % 12)) -eq 0 ]; then
-    info "  Still waiting... (${i}/120) — Debug: kubectl get pods -n ${IRONIC_NS}"
-  fi
-  if [ "${i}" -eq 120 ]; then
-    warn "Timed out waiting for Ironic pod. Debug:"
-    warn "  kubectl get pods -n ${IRONIC_NS}"
-    warn "  kubectl describe pod -n ${IRONIC_NS} -l app=ironic"
-    exit 1
-  fi
-  sleep 5
-done
-
-# Only copy if image isn't already in the pod
-IMG_EXISTS=$(kubectl -n "${IRONIC_NS}" exec "${IRONIC_POD}" -c ironic-httpd -- test -f /shared/html/images/ubuntu-worker.img && echo "yes" || true)
-if [ "${IMG_EXISTS}" != "yes" ]; then
-  kubectl -n "${IRONIC_NS}" exec "${IRONIC_POD}" -c ironic-httpd -- mkdir -p /shared/html/images
-  kubectl cp "${WORKER_IMG}" "${IRONIC_NS}/${IRONIC_POD}:/shared/html/images/ubuntu-worker.img" -c ironic-httpd
-  kubectl -n "${IRONIC_NS}" exec "${IRONIC_POD}" -c ironic-httpd -- \
-    sh -c 'cd /shared/html/images && sha512sum ubuntu-worker.img > ubuntu-worker.img.sha512sum'
-  info "  Ubuntu worker image copied into Ironic pod."
-else
-  info "  Ubuntu worker image already in Ironic pod, skipping copy."
 fi
 
-# Verify images are served
-info "  Verifying image HTTP access..."
-kubectl -n "${IRONIC_NS}" exec "${IRONIC_POD}" -c ironic-httpd -- ls -la /shared/html/images/
+if [ "${SKIP_PROVISIONING:-}" != "true" ]; then
+  info "Installing cert-manager..."
+  kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+  kubectl -n cert-manager wait --for=condition=Available deployment --all --timeout=300s
 
-# --- Step 7: Register BareMetalHosts ---
-kubectl create namespace metal3 --dry-run=client -o yaml | kubectl apply -f -
-info "Registering BareMetalHosts..."
-kubectl apply -f "${DEV_DIR}/metal3/baremetalhost-cpu.yaml"
-kubectl apply -f "${DEV_DIR}/metal3/baremetalhost-gpu.yaml"
+  info "Installing Cluster API + Metal3 provider..."
+  clusterctl init --infrastructure metal3
 
-info "Waiting for BareMetalHosts to be inspected..."
-info "  Debug: kubectl get bmh -n metal3"
-info "  Debug: kubectl logs -n baremetal-operator-system deployment/baremetal-operator-controller-manager --tail=20"
-for bmh in worker-cpu worker-gpu; do
-  for i in $(seq 1 60); do
-    STATE=$(kubectl -n metal3 get bmh "${bmh}" -o jsonpath='{.status.provisioning.state}' 2>/dev/null || echo "unknown")
-    ERROR=$(kubectl -n metal3 get bmh "${bmh}" -o jsonpath='{.status.errorMessage}' 2>/dev/null)
-    if [ "${STATE}" = "available" ] || [ "${STATE}" = "ready" ]; then
-      info "  ${bmh}: ${STATE}"
-      break
-    fi
-    if [ $((i % 6)) -eq 0 ]; then
-      info "  ${bmh}: ${STATE} (waiting... ${i}/60)${ERROR:+ error: ${ERROR}}"
-    fi
-    sleep 10
+  info "Installing Bare Metal Operator ${BMO_VERSION}..."
+  kubectl apply -f "https://github.com/metal3-io/baremetal-operator/releases/download/${BMO_VERSION}/baremetal-operator.yaml"
+  kubectl -n baremetal-operator-system wait --for=condition=Available deployment --all --timeout=300s
+
+  info "Deploying Ironic..."
+  kubectl apply -k "${DEV_DIR}/metal3/ironic"
+
+  # Patch configmaps with our provisioning network IPs
+  kubectl -n baremetal-operator-system patch configmap ironic --type merge -p \
+    '{"data":{"IRONIC_ENDPOINT":"http://172.16.20.10:6385/v1/","PROVISIONING_INTERFACE":"ens4","DHCP_RANGE":"172.16.20.100,172.16.20.200","CACHEURL":"http://172.16.20.10:6180/images"}}'
+  for cm in $(kubectl -n baremetal-operator-system get configmap -o name | grep ironic-bmo-configmap); do
+    kubectl -n baremetal-operator-system patch "${cm}" --type merge -p \
+      '{"data":{"IRONIC_IP":"172.16.20.10","IRONIC_BASE_URL":"http://172.16.20.10:6385","PROVISIONING_IP":"172.16.20.10","PROVISIONING_INTERFACE":"ens4","DHCP_RANGE":"172.16.20.100,172.16.20.200","DEPLOY_KERNEL_URL":"http://172.16.20.10:6180/images/ironic-python-agent.kernel","DEPLOY_RAMDISK_URL":"http://172.16.20.10:6180/images/ironic-python-agent.initramfs","IRONIC_ENDPOINT":"http://172.16.20.10:6385/v1/","IRONIC_FAST_TRACK":"true"}}'
   done
-done
 
-# --- Step 8: Create workload cluster via CAPI ---
-info "Creating workload cluster..."
-kubectl apply -f "${DEV_DIR}/capi/workload-cluster.yaml"
-# Note: cpu-workers not applied — only 2 BMHs (CP takes worker-cpu, gpu-workers takes worker-gpu)
-kubectl apply -f "${DEV_DIR}/capi/gpu-workers.yaml"
+  # Restart deployments only if not already running
+  IRONIC_READY=$(kubectl -n baremetal-operator-system get deployment baremetal-operator-ironic -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+  if [ "${IRONIC_READY}" = "0" ] || [ -z "${IRONIC_READY}" ]; then
+    info "Restarting deployments to pick up configmaps..."
+    kubectl -n baremetal-operator-system rollout restart deployment baremetal-operator-controller-manager
+    kubectl -n baremetal-operator-system rollout restart deployment baremetal-operator-ironic
+  fi
+  kubectl -n baremetal-operator-system wait --for=condition=Available deployment --all --timeout=600s
+
+  # Copy worker image into Ironic pod (serves from emptyDir /shared/html/images)
+  info "Copying Ubuntu worker image into Ironic pod..."
+  IRONIC_NS="baremetal-operator-system"
+
+  info "  Waiting for Ironic pod to be ready (this may take a few minutes for IPA download)..."
+  IRONIC_POD=""
+  for i in $(seq 1 120); do
+    IRONIC_POD=$(kubectl -n "${IRONIC_NS}" get pods -o name 2>/dev/null | grep baremetal-operator-ironic | head -1 | sed 's|pod/||' || true)
+    if [ -n "${IRONIC_POD}" ]; then
+      READY=$(kubectl -n "${IRONIC_NS}" get pod "${IRONIC_POD}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
+      if [ "${READY}" = "True" ]; then
+        info "  Ironic pod ${IRONIC_POD} is ready."
+        break
+      fi
+    fi
+    if [ $((i % 12)) -eq 0 ]; then
+      info "  Still waiting... (${i}/120) — Debug: kubectl get pods -n ${IRONIC_NS}"
+    fi
+    if [ "${i}" -eq 120 ]; then
+      warn "Timed out waiting for Ironic pod."
+      exit 1
+    fi
+    sleep 5
+  done
+
+  # Only copy if image isn't already in the pod
+  IMG_EXISTS=$(kubectl -n "${IRONIC_NS}" exec "${IRONIC_POD}" -c ironic-httpd -- test -f /shared/html/images/ubuntu-worker.img && echo "yes" || true)
+  if [ "${IMG_EXISTS}" != "yes" ]; then
+    kubectl -n "${IRONIC_NS}" exec "${IRONIC_POD}" -c ironic-httpd -- mkdir -p /shared/html/images
+    kubectl cp "${WORKER_IMG}" "${IRONIC_NS}/${IRONIC_POD}:/shared/html/images/ubuntu-worker.img" -c ironic-httpd
+    kubectl -n "${IRONIC_NS}" exec "${IRONIC_POD}" -c ironic-httpd -- \
+      sh -c 'cd /shared/html/images && sha512sum ubuntu-worker.img > ubuntu-worker.img.sha512sum'
+    info "  Ubuntu worker image copied into Ironic pod."
+  else
+    info "  Ubuntu worker image already in Ironic pod, skipping copy."
+  fi
+
+  info "  Verifying image HTTP access..."
+  kubectl -n "${IRONIC_NS}" exec "${IRONIC_POD}" -c ironic-httpd -- ls -la /shared/html/images/
+
+  # --- Step 7: Register BareMetalHosts ---
+  kubectl create namespace metal3 --dry-run=client -o yaml | kubectl apply -f -
+  info "Registering BareMetalHosts..."
+  kubectl apply -f "${DEV_DIR}/metal3/baremetalhost-cpu.yaml"
+  kubectl apply -f "${DEV_DIR}/metal3/baremetalhost-gpu.yaml"
+
+  info "Waiting for BareMetalHosts to be inspected..."
+  for bmh in worker-cpu worker-gpu; do
+    for i in $(seq 1 60); do
+      STATE=$(kubectl -n metal3 get bmh "${bmh}" -o jsonpath='{.status.provisioning.state}' 2>/dev/null || echo "unknown")
+      ERROR=$(kubectl -n metal3 get bmh "${bmh}" -o jsonpath='{.status.errorMessage}' 2>/dev/null)
+      if [ "${STATE}" = "available" ] || [ "${STATE}" = "ready" ]; then
+        info "  ${bmh}: ${STATE}"
+        break
+      fi
+      if [ $((i % 6)) -eq 0 ]; then
+        info "  ${bmh}: ${STATE} (waiting... ${i}/60)${ERROR:+ error: ${ERROR}}"
+      fi
+      sleep 10
+    done
+  done
+
+  # --- Step 8: Create workload cluster via CAPI ---
+  info "Creating workload cluster..."
+  kubectl apply -f "${DEV_DIR}/capi/workload-cluster.yaml"
+  # Note: cpu-workers not applied — only 2 BMHs (CP takes worker-cpu, gpu-workers takes worker-gpu)
+  kubectl apply -f "${DEV_DIR}/capi/gpu-workers.yaml"
+fi
 
 info "Metal3 is now provisioning workers (PXE → Ubuntu)..."
 info "Waiting for workload cluster control plane to be ready..."
