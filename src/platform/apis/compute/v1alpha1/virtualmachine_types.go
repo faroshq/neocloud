@@ -87,7 +87,7 @@ type VirtualMachineDisk struct {
 
 	// Base OS image.
 	// +required
-	// +kubebuilder:validation:Enum=ubuntu-22.04;ubuntu-24.04;debian-12;flatcar
+	// +kubebuilder:validation:Enum=ubuntu-22.04;ubuntu-24.04;debian-12
 	Image string `json:"image"`
 }
 

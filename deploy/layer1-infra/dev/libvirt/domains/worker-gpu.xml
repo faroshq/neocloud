@@ -1,4 +1,4 @@
-<!-- GPU worker VM: PXE boots from Ironic, gets Flatcar, fake GPU -->
+<!-- GPU worker VM: PXE boots from Ironic, gets Ubuntu, fake GPU -->
 <!-- Requires Linux host with libvirt system daemon (qemu:///system) -->
 <domain type="kvm">
   <name>neo-worker-gpu</name>

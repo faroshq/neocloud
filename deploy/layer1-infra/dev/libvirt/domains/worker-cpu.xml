@@ -1,4 +1,4 @@
-<!-- CPU worker VM: PXE boots from Ironic, gets Flatcar -->
+<!-- CPU worker VM: PXE boots from Ironic, gets Ubuntu -->
 <!-- Requires Linux host with libvirt system daemon (qemu:///system) -->
 <domain type="kvm">
   <name>neo-worker-cpu</name>
@@ -16,7 +16,7 @@
   </features>
   <cpu mode="host-passthrough"/>
   <devices>
-    <!-- OS disk (blank, Ironic writes Flatcar here) -->
+    <!-- OS disk (blank, Ironic writes Ubuntu here) -->
     <disk type="file" device="disk">
       <driver name="qemu" type="qcow2"/>
       <source file="NEO_DATADIR/neo-worker-cpu.qcow2"/>

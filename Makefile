@@ -110,7 +110,7 @@ CONSOLE_ADDR ?= localhost:1234
 # Requires a Linux host with KVM. Produces a kubeconfig.
 # For macOS dev, use Lima targets below instead.
 
-layer1-dev-up: ## [Linux] Create dev cluster: libvirt VMs + Metal3 + Ironic + Flatcar
+layer1-dev-up: ## [Linux] Create dev cluster: libvirt VMs + Metal3 + Ironic + Ubuntu
 	$(LAYER1_SCRIPTS)/up.sh
 
 layer1-dev-down: ## [Linux] Tear down all libvirt VMs and networks

@@ -46,7 +46,7 @@ This document provides a practical, step-by-step guide to deploying the sovereig
 | kcp (control plane) | Yes | Yes |
 | Zitadel (identity) | Yes | Yes |
 | OpenMeter (billing) | Yes | Yes |
-| Kubernetes (workloads) | kubeadm (manual) | Metal3 + Flatcar + CAPI |
+| Kubernetes (workloads) | kubeadm (manual) | Metal3 + Ubuntu + CAPI |
 | GPU workloads | Simulated (or real if available) | NVIDIA GPU Operator |
 | KubeVirt (VMs) | Optional | Yes |
 | Rook-Ceph (storage) | No (local storage) | Yes |
@@ -72,8 +72,8 @@ This document provides a practical, step-by-step guide to deploying the sovereig
 ```
                       DEMO                          PRODUCTION
                       ────                          ──────────
-Bare metal            Pre-provisioned servers       Metal3 + Flatcar + CAPI
-                      Ubuntu/Flatcar manually       PXE boot, automated lifecycle
+Bare metal            Pre-provisioned servers       Metal3 + Ubuntu + CAPI
+                      Ubuntu manually               PXE boot, automated lifecycle
                       installed
 
 Kubernetes            kubeadm (manual bootstrap)    kubeadm via CAPI
@@ -275,7 +275,7 @@ yq                # YAML processing
 Each Cherry Server needs:
 
 ```bash
-# 1. Install OS (Ubuntu 22.04 LTS or Flatcar)
+# 1. Install OS (Ubuntu 22.04 LTS or newer)
 #    Cherry Servers provides OS install via control panel
 
 # 2. Update and install basics

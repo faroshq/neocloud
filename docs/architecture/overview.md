@@ -84,7 +84,7 @@ Tenants see **cloud APIs** (Compute, VM, Notebook, GPU). They never see pods, no
 |   +- KubeVirt (if VMs needed)                              |
 |                                                            |
 |   Bare Metal (production):                                 |
-|   +- Metal3 + Flatcar (automated provisioning)             |
+|   +- Metal3 + Ubuntu (automated provisioning)              |
 |   +- Or: pre-provisioned servers (demo/small scale)        |
 +-----------------------------------------------------------+
 ```
@@ -115,7 +115,7 @@ OpenMeter         When you need billing
 Rook-Ceph         When you need persistent storage
 GPU Operator      When you have GPU hardware
 KubeVirt          When you need VMs
-Metal3 + Flatcar  When you manage your own hardware
+Metal3 + Ubuntu   When you manage your own hardware
 Kueue             When you need GPU job queuing
 Grafana           When you need dashboards
 Web console       When you want a UI
@@ -268,7 +268,7 @@ When you need the full production setup, see [`whitepaper.md`](whitepaper.md). T
 
 | Layer | Component | Purpose |
 |-------|-----------|---------|
-| Bare Metal | Metal3 + Flatcar | Automated server provisioning |
+| Bare Metal | Metal3 + Ubuntu | Automated server provisioning |
 | Cluster Lifecycle | Cluster API | Declarative cluster management |
 | Identity | Zitadel | Full IAM with user management |
 | Storage | Rook-Ceph | Block + object storage |
@@ -291,7 +291,7 @@ Every component is open source:
 
 | License | Components |
 |---------|-----------|
-| **Apache 2.0** | kcp, Kubernetes, Kube-OVN, Metal3, Flatcar, Rook-Ceph, OpenMeter, Kueue, KubeVirt, Prometheus, gVisor, Cluster API, cert-manager, GPU Operator |
+| **Apache 2.0** | kcp, Kubernetes, Kube-OVN, Metal3, Rook-Ceph, OpenMeter, Kueue, KubeVirt, Prometheus, gVisor, Cluster API, cert-manager, GPU Operator |
 | **AGPL-3.0** | Zitadel (server), Grafana — deployed unmodified, no copyleft impact |
 
 No BSL, SSPL, or proprietary licenses. No commercial components required.
@@ -304,7 +304,7 @@ No BSL, SSPL, or proprietary licenses. No commercial components required.
 
 | Document | Layer | What it covers |
 |----------|-------|---------------|
-| **[01-infrastructure.md](../layers/01-infrastructure.md)** | Layer 1 | Bare metal → K8s (Metal3, Flatcar, Kube-OVN, Ceph, GPU, KubeVirt) |
+| **[01-infrastructure.md](../layers/01-infrastructure.md)** | Layer 1 | Bare metal → K8s (Metal3, Ubuntu, Kube-OVN, Ceph, GPU, KubeVirt) |
 | **[02-platform.md](../layers/02-platform.md)** | Layer 2 | Multi-tenant cloud APIs (kcp, Identity, Cloud Operator, CLI, Console) — **demo lives here** |
 | **[03-production.md](../layers/03-production.md)** | Layer 3 | Productionization (billing, metering, monitoring, backup, day-2 ops) |
 

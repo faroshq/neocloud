@@ -98,7 +98,6 @@ spec:
                     - ubuntu-22.04
                     - ubuntu-24.04
                     - debian-12
-                    - flatcar
                     type: string
                   size:
                     description: Size of the root disk (e.g. "50Gi").

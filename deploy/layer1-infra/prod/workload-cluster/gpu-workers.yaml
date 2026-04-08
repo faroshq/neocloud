@@ -65,8 +65,8 @@ spec:
           feature: gpu
 
       image:
-        url: "http://172.16.20.10:6180/images/flatcar_production_metal_image.bin.bz2"
-        checksum: "http://172.16.20.10:6180/images/flatcar_production_metal_image.bin.bz2.md5sum"
+        url: "http://172.16.20.10:6180/images/ubuntu-24.04-server-cloudimg-amd64.img"
+        checksum: "http://172.16.20.10:6180/images/ubuntu-24.04-server-cloudimg-amd64.img.md5sum"
         checksumType: md5
         format: raw
 

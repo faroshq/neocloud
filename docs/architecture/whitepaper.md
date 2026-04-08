@@ -16,7 +16,7 @@
 4. [Architecture Overview](#4-architecture-overview)
 5. [Control Plane — kcp](#5-control-plane--kcp)
 6. [Identity and Access — Zitadel](#6-identity-and-access--zitadel)
-7. [Bare Metal Provisioning — Metal3 + Flatcar](#7-bare-metal-provisioning--metal3--flatcar)
+7. [Bare Metal Provisioning — Metal3 + Ubuntu](#7-bare-metal-provisioning--metal3--ubuntu)
 8. [Kubernetes Layer](#8-kubernetes-layer)
 9. [Tenant Model and Isolation](#9-tenant-model-and-isolation)
 10. [Compute Services](#10-compute-services)
@@ -49,7 +49,7 @@ Every component is open source, CNCF-aligned where possible, and self-hostable. 
 - **API Platform model** — tenants consume high-level cloud APIs (Compute, VM, GPU, Storage), not raw Kubernetes
 - **kcp at the core** — multi-tenant workspaces with full API isolation, RBAC, and quotas
 - **Interface-based** — identity, billing, payment, and infrastructure components are swappable
-- **Bare metal native** — Metal3 for hardware lifecycle, Flatcar for immutable OS
+- **Bare metal native** — Metal3 for hardware lifecycle, Ubuntu Server for host OS
 - **GPU-ready** — NVIDIA GPU Operator with extensible sharing models
 - **Self-service** — OIDC login, automatic workspace provisioning, usage-based billing
 
@@ -139,7 +139,7 @@ The Kubernetes ecosystem has matured to the point where most building blocks for
 │                  WORKLOAD CLUSTER(s)                              │
 │                                                                   │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │  Kubernetes (kubeadm on Flatcar)                         │    │
+│  │  Kubernetes (kubeadm on Ubuntu)                           │    │
 │  │                                                           │    │
 │  │  Namespaces per tenant (operator-managed):                │    │
 │  │  ┌──────────┐ ┌──────────┐ ┌──────────┐                 │    │
@@ -157,7 +157,7 @@ The Kubernetes ecosystem has matured to the point where most building blocks for
 ┌──────────────────────────▼──────────────────────────────────────┐
 │                  BARE METAL (Production Path)                     │
 │                                                                   │
-│  Metal3 (Ironic) · Flatcar Container Linux                       │
+│  Metal3 (Ironic) · Ubuntu Server                                 │
 │  IPMI/Redfish · PXE Boot                                         │
 │  2-3 racks · commodity servers · NVIDIA GPUs                     │
 └─────────────────────────────────────────────────────────────────┘
@@ -343,11 +343,11 @@ Machine user → Zitadel PAT or client credentials → JWT → kcp
 
 ---
 
-## 7. Bare Metal Provisioning — Metal3 + Flatcar
+## 7. Bare Metal Provisioning — Metal3 + Ubuntu
 
 ### Role
 
-Metal3 manages the lifecycle of bare metal servers — from powered-off hardware to running Kubernetes nodes. Flatcar Container Linux is the immutable operating system installed on each machine.
+Metal3 manages the lifecycle of bare metal servers — from powered-off hardware to running Kubernetes nodes. Ubuntu Server is the operating system installed on each machine.
 
 ### Why Metal3
 
@@ -370,15 +370,16 @@ Alternatives considered:
 
 Sidero Metal was deprecated in favor of Sidero Omni, a BSL-licensed (not open source) commercial product. This ruled it out.
 
-### Why Flatcar
+### Why Ubuntu
 
-Flatcar Container Linux is an immutable, container-optimized OS:
+Ubuntu Server is a widely adopted, well-supported server OS:
 
-- **CNCF Incubating** — donated by Microsoft after acquiring Kinvolk (Berlin, Germany/EU)
-- **Apache 2.0** — fully open source, no commercial gating
-- **Immutable** — read-only root filesystem, atomic updates, minimal attack surface
-- **Metal3 compatible** — publishes Metal3-ready images
-- **Container-native** — ships with containerd, designed for running Kubernetes
+- **Free and open source** — available under a mix of open source licenses (primarily GPL/LGPL)
+- **Broad hardware support** — extensive driver coverage across commodity and enterprise hardware
+- **Cloud-init native** — first-class support for cloud-init based provisioning
+- **Metal3 compatible** — Ubuntu cloud images work with Metal3 and Ironic out of the box
+- **Container-native** — ships with containerd available, widely used for running Kubernetes
+- **LTS releases** — 5-year support with automated security patches via unattended-upgrades
 
 ### How It Works
 
@@ -401,7 +402,7 @@ Flatcar Container Linux is an immutable, container-optimized OS:
      ┌─────────────────────┼─────────────────────────┐
      ▼                     ▼                         ▼
 BareMetalHost         Cluster (CAPI)          Machine (CAPI)
-  name: node-1          name: workload-1        ├── Flatcar image
+  name: node-1          name: workload-1        ├── Ubuntu image
   bmc:                  infrastructure:         ├── kubeadm bootstrap
     address: ipmi://    Metal3Cluster           └── Join cluster
     credentialsName:
@@ -412,10 +413,10 @@ BareMetalHost         Cluster (CAPI)          Machine (CAPI)
 
 1. **Register** — Create `BareMetalHost` resources with BMC credentials
 2. **Inspect** — Metal3/Ironic introspects hardware (CPU, RAM, disks, NICs)
-3. **Provision** — Apply CAPI `Cluster` + `Machine` manifests; Metal3 PXE-boots machines, writes Flatcar to disk
-4. **Bootstrap** — kubeadm initializes Kubernetes on the nodes
+3. **Provision** — Apply CAPI `Cluster` + `Machine` manifests; Metal3 PXE-boots machines, writes Ubuntu to disk
+4. **Bootstrap** — kubeadm initializes Kubernetes on the nodes via cloud-init
 5. **Scale** — Add/remove `Machine` resources; Metal3 provisions/deprovisions automatically
-6. **Update** — Rolling OS updates via Flatcar's atomic update mechanism
+6. **Update** — OS updates via unattended-upgrades with configurable maintenance windows
 
 ### Network Requirements
 
@@ -1155,7 +1156,7 @@ kcp's built-in multi-layer authorization:
 ### Supply Chain Security
 
 - All container images from trusted registries (or provider-hosted mirror)
-- Flatcar's immutable OS reduces host attack surface
+- Ubuntu's hardened configuration reduces host attack surface
 - No SSH access to nodes (Talos-style operational model recommended)
 - etcd encryption at rest for kcp and workload cluster secrets
 
@@ -1178,7 +1179,7 @@ kcp's built-in multi-layer authorization:
 | Component | Role | License | CNCF Status |
 |-----------|------|---------|-------------|
 | **Metal3** | Bare metal provisioning | Apache 2.0 | Incubating |
-| **Flatcar** | Immutable OS | Apache 2.0 | Incubating |
+| **Ubuntu Server** | Host OS | Free/Open Source | — |
 | **Cluster API** | Cluster lifecycle | Apache 2.0 | — |
 | **Rook-Ceph** | Storage (block + object) | Apache 2.0 | Graduated |
 | **cert-manager** | TLS certificates | Apache 2.0 | — |
@@ -1219,7 +1220,7 @@ kcp's built-in multi-layer authorization:
 All components use OSI-approved open source licenses:
 
 ```
-Apache 2.0 (permissive):  kcp, Metal3, Flatcar, Kube-OVN, Kubernetes,
+Apache 2.0 (permissive):  kcp, Metal3, Kube-OVN, Kubernetes,
                            Rook-Ceph, OpenMeter, Kueue, KubeVirt,
                            Prometheus, VictoriaMetrics, cert-manager,
                            NVIDIA GPU Operator, gVisor, Cluster API
@@ -1240,7 +1241,6 @@ Several components have EU origins:
 | Component | Origin |
 |-----------|--------|
 | Metal3 | Co-maintained by Ericsson (Sweden) |
-| Flatcar | Created by Kinvolk (Berlin, Germany) |
 | Zitadel | CAOS AG (Zurich, Switzerland) |
 | Rook-Ceph | Ceph originally from Inktank/Red Hat, Rook community-driven |
 
@@ -1341,7 +1341,7 @@ This section records the architectural decisions made during design and the rati
 | D02 | Control plane | kcp (only control plane, tenants get access handles) | kcp as orchestrator + direct access | Clean separation. Tenants see only kcp workspace APIs. |
 | D03 | Sovereignty model | Self-hosted + swappable interfaces | Fully self-hosted, compliance-aligned | Pragmatic. Default to self-hosted, allow external services (OIDC, Stripe) behind interfaces. |
 | D04 | Bare metal provisioning | Metal3 | Tinkerbell, Sidero, MAAS | CNCF Incubating, Apache 2.0, 57 orgs, EU involvement (Ericsson). Sidero deprecated. |
-| D05 | OS | Flatcar Container Linux | Talos, Ubuntu, Kairos | CNCF Incubating, Apache 2.0, immutable, Metal3-compatible, EU origin (Kinvolk/Berlin). |
+| D05 | OS | Ubuntu Server (LTS) | Talos, Flatcar, Kairos | Broad hardware support, Metal3-compatible cloud images, cloud-init native, LTS with unattended-upgrades, largest ecosystem and community. |
 | D06 | Network mode | Overlay (demo), all options documented | L2 flat, L3 BGP | Overlay works everywhere. Document production options for providers with network control. |
 | D07 | K8s distribution | kubeadm (default), k3s (alternative) | k0s | kubeadm is the reference CAPI bootstrap provider. Best Metal3 integration. |
 | D08 | Cluster topology | Management + workload cluster(s) | Single cluster, per-tenant clusters | Fault isolation between management and workload. Security boundary. Independent scaling. |

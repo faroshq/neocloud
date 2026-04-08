@@ -23,7 +23,6 @@ const OS_IMAGES = [
   { id: 'ubuntu-22.04', name: 'Ubuntu', version: '22.04 LTS', color: '#E95420' },
   { id: 'ubuntu-24.04', name: 'Ubuntu', version: '24.04 LTS', color: '#E95420' },
   { id: 'debian-12', name: 'Debian', version: '12 Bookworm', color: '#A80030' },
-  { id: 'flatcar', name: 'Flatcar', version: 'Stable', color: '#4A90D9' },
 ];
 
 interface CloudInitTemplate {

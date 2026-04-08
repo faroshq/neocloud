@@ -472,7 +472,7 @@ kubectl --kubeconfig=management.kubeconfig \
   --type=merge -p '{"spec":{"replicas":4}}'
 ```
 
-CAPI handles the full lifecycle: PXE boot the new bare-metal machine, install the OS (Flatcar), join it to the workload cluster, and apply GPU operator configuration.
+CAPI handles the full lifecycle: PXE boot the new bare-metal machine, install the OS (Ubuntu), join it to the workload cluster, and apply GPU operator configuration.
 
 ### Kubernetes Upgrades
 

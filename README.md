@@ -14,7 +14,7 @@ Layer 3: Production           Billing, metering, monitoring, day-2 ops
 Layer 2: Platform              kcp, cloud APIs, identity, cloud operator
                                ← DEMO
 ──────────────────────────────────────────────────────────────────────
-Layer 1: Infrastructure        Bare metal → Kubernetes (Metal3, Flatcar,
+Layer 1: Infrastructure        Bare metal → Kubernetes (Metal3, Ubuntu,
                                Kube-OVN, Ceph, GPU Operator, KubeVirt)
 ```
 

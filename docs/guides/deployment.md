@@ -14,7 +14,7 @@
 2. [Deployment Overview](#2-deployment-overview)
 3. [Hardware Requirements](#3-hardware-requirements)
 4. [Network Architecture](#4-network-architecture)
-5. [Phase 1: Bare Metal Provisioning (Metal3 + Flatcar)](#5-phase-1-bare-metal-provisioning-metal3--flatcar)
+5. [Phase 1: Bare Metal Provisioning (Metal3 + Ubuntu)](#5-phase-1-bare-metal-provisioning-metal3--ubuntu)
 6. [Phase 2: Management Cluster Bootstrap](#6-phase-2-management-cluster-bootstrap)
 7. [Phase 3: Workload Cluster Provisioning (Cluster API)](#7-phase-3-workload-cluster-provisioning-cluster-api)
 8. [Phase 4: kcp Control Plane](#8-phase-4-kcp-control-plane)
@@ -49,7 +49,7 @@ This document provides production-grade deployment instructions for the sovereig
 - Networking fundamentals (VLANs, BGP concepts, DNS)
 - Bare metal server management (IPMI/BMC)
 
-**This is NOT the demo guide.** For a quick demo setup, see [`demo.md`](demo.md). This document covers the full production deployment path including Metal3, Flatcar, Rook-Ceph, HA considerations, and security hardening.
+**This is NOT the demo guide.** For a quick demo setup, see [`demo.md`](demo.md). This document covers the full production deployment path including Metal3, Ubuntu, Rook-Ceph, HA considerations, and security hardening.
 
 ### Deployment Personas
 
@@ -64,7 +64,7 @@ This document provides production-grade deployment instructions for the sovereig
 | Phase | Duration | Dependencies |
 |-------|----------|-------------|
 | Hardware racking + network | 1-2 days | Physical access |
-| Metal3 + Flatcar setup | 1 day | Hardware ready |
+| Metal3 + Ubuntu setup | 1 day | Hardware ready |
 | Management cluster | 2-4 hours | Metal3 or manual OS |
 | Workload cluster (CAPI) | 1-2 hours | Management cluster |
 | kcp | 2-4 hours | Management cluster |
@@ -329,17 +329,16 @@ spec:
 
 ---
 
-## 5. Phase 1: Bare Metal Provisioning (Metal3 + Flatcar)
+## 5. Phase 1: Bare Metal Provisioning (Metal3 + Ubuntu)
 
 ### 5.1 Seed Node Preparation
 
 One server must be manually provisioned as the seed node. All other servers are provisioned via Metal3 from this node.
 
 ```bash
-# Install Flatcar on seed node manually (via ISO or PXE from hosting provider)
-# Or install Ubuntu 22.04 as a temporary bootstrap OS
+# Install Ubuntu 24.04 LTS on seed node manually (via ISO or PXE from hosting provider)
 
-# If using Ubuntu as seed:
+# Prepare seed node:
 apt update && apt upgrade -y
 
 # Install container runtime
@@ -469,14 +468,13 @@ done
 kubectl -n metal3 get baremetalhosts
 ```
 
-### 5.5 Prepare Flatcar Image
+### 5.5 Prepare Ubuntu Image
 
 ```bash
-FLATCAR_VERSION="3815.2.0"
-wget https://stable.release.flatcar-linux.net/amd64-usr/${FLATCAR_VERSION}/flatcar_production_openstack_image.img.gz
-gunzip flatcar_production_openstack_image.img.gz
-cp flatcar_production_openstack_image.img /var/lib/ironic/images/
-md5sum /var/lib/ironic/images/flatcar_production_openstack_image.img
+UBUNTU_VERSION="24.04"
+wget https://cloud-images.ubuntu.com/releases/${UBUNTU_VERSION}/release/ubuntu-${UBUNTU_VERSION}-server-cloudimg-amd64.img
+cp ubuntu-${UBUNTU_VERSION}-server-cloudimg-amd64.img /var/lib/ironic/images/
+md5sum /var/lib/ironic/images/ubuntu-${UBUNTU_VERSION}-server-cloudimg-amd64.img
 ```
 
 ---
@@ -554,10 +552,10 @@ spec:
   template:
     spec:
       image:
-        url: http://172.16.20.10:6180/images/flatcar_production_openstack_image.img
-        checksum: http://172.16.20.10:6180/images/flatcar_production_openstack_image.img.md5sum
+        url: http://172.16.20.10:6180/images/ubuntu-24.04-server-cloudimg-amd64.img
+        checksum: http://172.16.20.10:6180/images/ubuntu-24.04-server-cloudimg-amd64.img.md5sum
         checksumType: md5
-        format: raw
+        format: qcow2
       hostSelector:
         matchLabels:
           role: management
@@ -697,8 +695,8 @@ spec:
   template:
     spec:
       image:
-        url: http://172.16.20.10:6180/images/flatcar_production_openstack_image.img
-        checksum: http://172.16.20.10:6180/images/flatcar_production_openstack_image.img.md5sum
+        url: http://172.16.20.10:6180/images/ubuntu-24.04-server-cloudimg-amd64.img
+        checksum: http://172.16.20.10:6180/images/ubuntu-24.04-server-cloudimg-amd64.img.md5sum
         checksumType: md5
         format: raw
       hostSelector:
@@ -1371,7 +1369,7 @@ tunnel.demo.example.com        A    <management-public-ip>
 - [ ] Default-deny NetworkPolicies on all namespaces
 - [ ] Secrets encrypted with external KMS or sealed-secrets
 - [ ] Container images from trusted registries only
-- [ ] Flatcar auto-updates configured
+- [ ] Ubuntu unattended-upgrades configured
 - [ ] BMC credentials rotated and stored securely
 - [ ] All default passwords changed
 - [ ] Default ServiceAccount tokens disabled

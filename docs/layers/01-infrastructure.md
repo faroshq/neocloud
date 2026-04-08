@@ -14,7 +14,7 @@
 
 1. [Overview](#1-overview)
 2. [Hardware Requirements](#2-hardware-requirements)
-3. [Bare Metal Provisioning — Metal3 + Flatcar](#3-bare-metal-provisioning--metal3--flatcar)
+3. [Bare Metal Provisioning — Metal3 + Ubuntu](#3-bare-metal-provisioning--metal3--ubuntu)
 4. [Kubernetes Layer](#4-kubernetes-layer)
 5. [Networking — Kube-OVN](#5-networking--kube-ovn)
 6. [Storage — Rook-Ceph](#6-storage--rook-ceph)
@@ -33,7 +33,7 @@ Layer 1 answers a single question: **how do I go from physical servers in a rack
 
 This layer takes bare metal hardware — commodity servers with CPUs, GPUs, disks, and network interfaces — and produces a fully operational Kubernetes cluster with:
 
-- **Automated bare metal provisioning** via Metal3 and Flatcar Container Linux
+- **Automated bare metal provisioning** via Metal3 and Ubuntu Server
 - **Container networking and tenant virtual networks** via Kube-OVN (CNI, NetworkPolicy, Vpc/Subnet isolation)
 - **Unified storage** via Rook-Ceph (block volumes and S3-compatible object storage)
 - **GPU acceleration** via the NVIDIA GPU Operator
@@ -47,7 +47,7 @@ The output of Layer 1 is a compute-ready Kubernetes cluster. It does not define 
 Layer 1 (this document)           Layer 2 (02-platform.md)
 ─────────────────────────         ─────────────────────────
 Bare metal servers                Multi-tenant control plane
-  → Flatcar OS                      → Tenant workspaces
+  → Ubuntu OS                       → Tenant workspaces
   → Kubernetes cluster              → Platform APIs
   → Kube-OVN networking               → Identity and access
   → Rook-Ceph storage               → Self-service onboarding
@@ -145,11 +145,11 @@ Management nodes run the management cluster (Metal3, Cluster API, platform contr
 
 ---
 
-## 3. Bare Metal Provisioning — Metal3 + Flatcar
+## 3. Bare Metal Provisioning — Metal3 + Ubuntu
 
 ### Role
 
-Metal3 manages the lifecycle of bare metal servers — from powered-off hardware to running Kubernetes nodes. Flatcar Container Linux is the immutable operating system installed on each machine.
+Metal3 manages the lifecycle of bare metal servers — from powered-off hardware to running Kubernetes nodes. Ubuntu Server is the operating system installed on each machine.
 
 ### Why Metal3
 
@@ -170,15 +170,16 @@ Metal3 is the Kubernetes-native bare metal provisioning system:
 
 Sidero Metal was deprecated in favor of Sidero Omni, a BSL-licensed (not open source) commercial product. This ruled it out.
 
-### Why Flatcar
+### Why Ubuntu
 
-Flatcar Container Linux is an immutable, container-optimized OS:
+Ubuntu Server is a widely adopted, well-supported server OS:
 
-- **CNCF Incubating** — donated by Microsoft after acquiring Kinvolk (Berlin, Germany/EU)
-- **Apache 2.0** — fully open source, no commercial gating
-- **Immutable** — read-only root filesystem, atomic updates, minimal attack surface
-- **Metal3 compatible** — publishes Metal3-ready images
-- **Container-native** — ships with containerd, designed for running Kubernetes
+- **Free and open source** — available under a mix of open source licenses (primarily GPL/LGPL)
+- **Broad hardware support** — extensive driver coverage across commodity and enterprise hardware
+- **Cloud-init native** — first-class support for cloud-init based provisioning
+- **Metal3 compatible** — Ubuntu cloud images work with Metal3 and Ironic out of the box
+- **Container-native** — ships with containerd available, widely used for running Kubernetes
+- **LTS releases** — 5-year support with automated security patches via unattended-upgrades
 
 ### How It Works
 
@@ -203,7 +204,7 @@ The provisioning flow starts from a seed node — a single machine (or VM) that 
      ┌─────────────────────┼─────────────────────────┐
      ▼                     ▼                         ▼
 BareMetalHost         Cluster (CAPI)          Machine (CAPI)
-  name: node-1          name: workload-1        ├── Flatcar image
+  name: node-1          name: workload-1        ├── Ubuntu image
   bmc:                  infrastructure:         ├── kubeadm bootstrap
     address: ipmi://    Metal3Cluster           └── Join cluster
     credentialsName:
@@ -215,10 +216,10 @@ BareMetalHost         Cluster (CAPI)          Machine (CAPI)
 1. **Seed** — Bootstrap a management cluster on a single node (or VM). Install Metal3, Ironic, and Cluster API.
 2. **Register** — Create `BareMetalHost` resources with BMC credentials for each physical server.
 3. **Inspect** — Metal3/Ironic introspects hardware via BMC (CPU count, RAM, disk sizes, NIC MACs).
-4. **Provision** — Apply Cluster API `Cluster` + `Machine` manifests. Metal3 PXE-boots machines, writes Flatcar to disk.
-5. **Bootstrap** — kubeadm initializes Kubernetes on the newly provisioned nodes.
+4. **Provision** — Apply Cluster API `Cluster` + `Machine` manifests. Metal3 PXE-boots machines, writes Ubuntu to disk.
+5. **Bootstrap** — kubeadm initializes Kubernetes on the newly provisioned nodes via cloud-init.
 6. **Scale** — Add or remove `Machine` resources. Metal3 provisions or deprovisions automatically.
-7. **Update** — Rolling OS updates via Flatcar's atomic update mechanism.
+7. **Update** — OS updates via unattended-upgrades with configurable maintenance windows.
 
 ### BareMetalHost Example
 
@@ -908,18 +909,19 @@ gVisor is best suited for untrusted, non-GPU tenant workloads where the addition
 
 Layer 1 applies defense-in-depth across the OS, network, and runtime layers.
 
-### Flatcar Immutable OS
+### Ubuntu Hardened Configuration
 
-Flatcar's immutable design provides the first security boundary:
+Ubuntu's hardened configuration provides the first security boundary:
 
-- **Read-only root filesystem** — the OS cannot be tampered with at runtime
-- **Atomic updates** — OS updates are applied as a whole image, not package-by-package. Rollback is automatic if the update fails.
-- **Minimal attack surface** — no package manager, no SSH by default (configurable), no unnecessary services
-- **Auto-update** — Flatcar checks for updates and applies them in a rolling fashion across the cluster
+- **Minimal server install** — only essential packages installed, reducing attack surface
+- **Unattended security upgrades** — automated security patches via unattended-upgrades with configurable maintenance windows
+- **AppArmor enforcement** — mandatory access control profiles for system services and containers
+- **CIS benchmark compliance** — hardened per CIS Ubuntu Linux Benchmark guidelines
+- **Cloud-init provisioning** — reproducible, declarative node configuration with no manual intervention
 
 ### WireGuard Encryption
 
-All node-to-node traffic can be encrypted using WireGuard at the OS level or via a dedicated WireGuard mesh (e.g., Netmaker, wg-quick systemd units on Flatcar). This provides transparent encryption for all pod-to-pod communication across nodes without application changes.
+All node-to-node traffic can be encrypted using WireGuard at the OS level or via a dedicated WireGuard mesh (e.g., Netmaker, wg-quick systemd units on Ubuntu). This provides transparent encryption for all pod-to-pod communication across nodes without application changes.
 
 Kube-OVN's Geneve tunnels can also be configured to run over encrypted WireGuard interfaces for defense-in-depth.
 
@@ -978,7 +980,7 @@ GPU and KubeVirt workloads run in namespaces with adjusted policies to allow dev
 ```
 Layer           Mechanism                       Protects Against
 ──────────────────────────────────────────────────────────────────────
-OS              Flatcar immutable root          Host compromise, tampering
+OS              Ubuntu hardened config           Host compromise, tampering
 Network         WireGuard encryption            Traffic interception
 Network         Kube-OVN Vpc isolation          Lateral movement
 Data            etcd encryption at rest         Data theft from disk
@@ -998,7 +1000,7 @@ Secrets         etcd encryption + RBAC          Secret exposure
 | Component | Role | License | CNCF Status |
 |-----------|------|---------|-------------|
 | **Metal3** | Bare metal provisioning | Apache 2.0 | Incubating |
-| **Flatcar Container Linux** | Immutable OS | Apache 2.0 | Incubating |
+| **Ubuntu Server** | Host OS | Free/Open Source | — |
 | **Kubernetes** (kubeadm) | Container orchestration | Apache 2.0 | Graduated |
 | **Cluster API** | Cluster lifecycle management | Apache 2.0 | — |
 | **Kube-OVN** | CNI + Vpc/Subnet tenant isolation + NetworkPolicy | Apache 2.0 | Sandbox |
@@ -1019,7 +1021,6 @@ Several Layer 1 components have EU origins:
 | Component | Origin |
 |-----------|--------|
 | **Metal3** | Co-maintained by Ericsson (Sweden) |
-| **Flatcar** | Created by Kinvolk (Berlin, Germany) |
 
 ### Deployment References
 
@@ -1039,7 +1040,7 @@ Several Layer 1 components have EU origins:
 
 ## 12. What's Next
 
-Layer 1 produces a **compute-ready Kubernetes cluster** — bare metal servers running Flatcar, orchestrated by Kubernetes, with networking, storage, GPU support, VM capability, and security hardening in place.
+Layer 1 produces a **compute-ready Kubernetes cluster** — bare metal servers running Ubuntu, orchestrated by Kubernetes, with networking, storage, GPU support, VM capability, and security hardening in place.
 
 This cluster can run workloads, but it is not yet a multi-tenant cloud platform. It has no concept of tenants, no self-service APIs, no identity management, and no billing.
 

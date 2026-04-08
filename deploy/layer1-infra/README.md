@@ -178,7 +178,7 @@ Layer 1 produces a **kubeconfig** for a Kubernetes cluster with KubeVirt install
 |---------|--------------|-------------------|
 | BMC | sushy-tools (virtual Redfish) | Real IPMI/Redfish |
 | Provisioning | Ironic (same) | Ironic (same) |
-| OS | Ubuntu 24.04 | Flatcar (prod) |
+| OS | Ubuntu 24.04 | Ubuntu 24.04 (prod) |
 | Cluster API | CAPI + Metal3 (same) | CAPI + Metal3 (same) |
 | BareMetalHost | Same CRs | Same CRs |
 | KubeVirt | Software emulation | KVM + VFIO |
