@@ -59,7 +59,7 @@ spec:
         - name: neo
           sudo: ALL=(ALL) NOPASSWD:ALL
           passwd: "$6$rounds=4096$neo$eSY.fMgBbABKZr0x1BgDyOmMJbI3IKVHy3kBOJCmVFG7wJnyWXJFJyN/BLY.fDEviWJGMh/7R0Bh/jnGBLOL1"
-          lock_passwd: false
+          lockPassword: false
           shell: /bin/bash
       preKubeadmCommands:
         - modprobe br_netfilter && modprobe overlay
