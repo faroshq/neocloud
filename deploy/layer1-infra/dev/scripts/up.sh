@@ -280,18 +280,24 @@ done
 # --- Step 8: Create workload cluster via CAPI ---
 info "Creating workload cluster..."
 kubectl apply -f "${DEV_DIR}/capi/workload-cluster.yaml"
-kubectl apply -f "${DEV_DIR}/capi/cpu-workers.yaml"
+# Note: cpu-workers not applied — only 2 BMHs (CP takes worker-cpu, gpu-workers takes worker-gpu)
 kubectl apply -f "${DEV_DIR}/capi/gpu-workers.yaml"
 
 info "Metal3 is now provisioning workers (PXE → Ubuntu)..."
 info "Waiting for workload cluster control plane to be ready..."
 
-# Wait for the control plane to initialize (machine becomes Running)
+# Wait for workload cluster kubeconfig secret to exist (means CP apiserver is up)
 for i in $(seq 1 120); do
-  CP_READY=$(kubectl -n metal3 get kubeadmcontrolplane workload-cluster-control-plane -o jsonpath='{.status.ready}' 2>/dev/null || true)
-  if [ "${CP_READY}" = "true" ]; then
-    info "  Control plane is ready."
-    break
+  if kubectl get secret workload-cluster-kubeconfig -n metal3 &>/dev/null; then
+    # Verify we can actually reach the workload API
+    WORKLOAD_KUBECONFIG_TMP=$(mktemp)
+    kubectl get secret workload-cluster-kubeconfig -n metal3 -o jsonpath='{.data.value}' | base64 -d > "${WORKLOAD_KUBECONFIG_TMP}"
+    if KUBECONFIG="${WORKLOAD_KUBECONFIG_TMP}" kubectl get nodes &>/dev/null; then
+      rm -f "${WORKLOAD_KUBECONFIG_TMP}"
+      info "  Control plane is ready and API is reachable."
+      break
+    fi
+    rm -f "${WORKLOAD_KUBECONFIG_TMP}"
   fi
   if [ $((i % 12)) -eq 0 ]; then
     info "  Still waiting for control plane... (${i}/120)"

@@ -85,7 +85,14 @@ spec:
       - "echo 'runtime-endpoint: unix:///run/containerd/containerd.sock' > /etc/crictl.yaml"
       - curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
       - echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /" > /etc/apt/sources.list.d/kubernetes.list
-      - apt-get update && apt-get install -y kubelet kubeadm kubectl && apt-mark hold kubelet kubeadm kubectl
+      - apt-get update && apt-get install -y kubelet kubeadm kubectl jq && apt-mark hold kubelet kubeadm kubectl
+    postKubeadmCommands:
+      # Label node with BMH UUID from ConfigDrive metadata so CAPM3 can match it
+      - |
+        METAL3_UUID=$(jq -r '.ds.meta_data.uuid // empty' /run/cloud-init/instance-data.json 2>/dev/null || true)
+        if [ -n "${METAL3_UUID}" ]; then
+          kubectl --kubeconfig /etc/kubernetes/admin.conf label node $(hostname) metal3.io/uuid=${METAL3_UUID} --overwrite || true
+        fi
     initConfiguration:
       localAPIEndpoint:
         advertiseAddress: "172.16.30.20"
