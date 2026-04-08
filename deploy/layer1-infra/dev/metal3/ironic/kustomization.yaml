@@ -1,0 +1,19 @@
+# Dev Ironic overlay — pulls from BMO repo, customizes for our provisioning network.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - https://github.com/metal3-io/baremetal-operator/ironic-deployment/default?ref=v0.12.3
+
+configMapGenerator:
+  - name: ironic-bmo-configmap
+    namespace: baremetal-operator-system
+    behavior: merge
+    literals:
+      - PROVISIONING_INTERFACE=ens4
+      - DHCP_RANGE=172.16.20.100,172.16.20.200
+      - DEPLOY_KERNEL_URL=http://172.16.20.10:6180/images/ironic-python-agent.kernel
+      - DEPLOY_RAMDISK_URL=http://172.16.20.10:6180/images/ironic-python-agent.initramfs
+      - IRONIC_ENDPOINT=http://172.16.20.10:6385/v1/
+      - IRONIC_KERNEL_PARAMS=console=ttyS0
+      - IRONIC_FAST_TRACK=true

@@ -199,9 +199,9 @@ info "Installing Bare Metal Operator ${BMO_VERSION}..."
 kubectl apply -f "https://github.com/metal3-io/baremetal-operator/releases/download/${BMO_VERSION}/baremetal-operator.yaml"
 kubectl -n baremetal-operator-system wait --for=condition=Available deployment --all --timeout=300s
 
-info "Deploying Ironic configuration..."
-kubectl create namespace metal3 --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -f "${DEV_DIR}/metal3/ironic.yaml"
+info "Deploying Ironic..."
+kubectl apply -k "${DEV_DIR}/metal3/ironic"
+kubectl -n baremetal-operator-system wait --for=condition=Available deployment --all --timeout=300s
 
 # Copy images to mgmt VM for Ironic to serve via HTTP
 info "Copying Flatcar + IPA images to mgmt VM for Ironic HTTP server..."
