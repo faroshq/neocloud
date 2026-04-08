@@ -1,7 +1,7 @@
 # Dev workload cluster — same structure as prod but sized for libvirt VMs.
 # Applied after BareMetalHosts reach "Available" state.
 ---
-apiVersion: cluster.x-k8s.io/v1beta1
+apiVersion: cluster.x-k8s.io/v1beta2
 kind: Cluster
 metadata:
   name: workload-cluster
@@ -15,15 +15,15 @@ spec:
       cidrBlocks:
         - "10.97.0.0/16"
   controlPlaneRef:
-    apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+    apiVersion: controlplane.cluster.x-k8s.io/v1beta2
     kind: KubeadmControlPlane
     name: workload-cluster-control-plane
   infrastructureRef:
-    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
     kind: Metal3Cluster
     name: workload-cluster
 ---
-apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
 kind: Metal3Cluster
 metadata:
   name: workload-cluster
@@ -34,7 +34,7 @@ spec:
     port: 6443
   noCloudProvider: true
 ---
-apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+apiVersion: controlplane.cluster.x-k8s.io/v1beta2
 kind: KubeadmControlPlane
 metadata:
   name: workload-cluster-control-plane
@@ -45,7 +45,7 @@ spec:
   version: v1.35.3
   machineTemplate:
     infrastructureRef:
-      apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+      apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
       kind: Metal3MachineTemplate
       name: workload-cluster-control-plane
   kubeadmConfigSpec:
@@ -72,7 +72,7 @@ spec:
         kubeletExtraArgs:
           cloud-provider: ""
 ---
-apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
 kind: Metal3MachineTemplate
 metadata:
   name: workload-cluster-control-plane
