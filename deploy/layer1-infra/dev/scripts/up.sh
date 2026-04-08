@@ -23,8 +23,6 @@ REPO_ROOT="${DEV_DIR}/../../.."
 NEO_DATADIR="${REPO_ROOT}/.platform-data/libvirt"
 KUBEVIRT_VERSION="${KUBEVIRT_VERSION:-v1.8.1}"
 BMO_VERSION="${BMO_VERSION:-v0.12.3}"
-FLATCAR_CHANNEL="${FLATCAR_CHANNEL:-stable}"
-FLATCAR_VERSION="${FLATCAR_VERSION:-current}"
 
 VIRSH="virsh --connect qemu:///system"
 
@@ -89,14 +87,8 @@ if [ ! -f "${UBUNTU_IMG}" ]; then
     "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
 fi
 
-# Flatcar image for workers (served by Ironic)
-FLATCAR_IMG="${NEO_DATADIR}/flatcar_production_qemu_image.img"
-if [ ! -f "${FLATCAR_IMG}" ]; then
-  info "  Downloading Flatcar Container Linux..."
-  curl -L -o "${FLATCAR_IMG}.bz2" \
-    "https://${FLATCAR_CHANNEL}.release.flatcar-linux.net/amd64-usr/${FLATCAR_VERSION}/flatcar_production_qemu_image.img.bz2"
-  bunzip2 "${FLATCAR_IMG}.bz2"
-fi
+# Worker image — reuse Ubuntu cloud image (same as mgmt)
+WORKER_IMG="${UBUNTU_IMG}"
 
 # IPA (Ironic Python Agent) kernel + ramdisk
 IPA_KERNEL="${NEO_DATADIR}/ironic-python-agent.kernel"
@@ -199,7 +191,6 @@ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/do
 kubectl -n cert-manager wait --for=condition=Available deployment --all --timeout=300s
 
 info "Installing Cluster API + Metal3 provider..."
-export EXP_KUBEADM_BOOTSTRAP_FORMAT_IGNITION=true
 clusterctl init --infrastructure metal3
 
 info "Installing Bare Metal Operator ${BMO_VERSION}..."
@@ -223,22 +214,29 @@ kubectl -n baremetal-operator-system rollout restart deployment baremetal-operat
 kubectl -n baremetal-operator-system rollout restart deployment baremetal-operator-ironic
 kubectl -n baremetal-operator-system wait --for=condition=Available deployment --all --timeout=300s
 
-# Copy images to mgmt VM for Ironic to serve via HTTP
-info "Copying Flatcar + IPA images to mgmt VM for Ironic HTTP server..."
-MGMT_IP=$(${VIRSH} domifaddr neo-mgmt --source agent 2>/dev/null | grep -oE '172\.16\.30\.[0-9]+' | head -1)
-if [ -z "${MGMT_IP}" ]; then
-  MGMT_IP=$(${VIRSH} domifaddr neo-mgmt 2>/dev/null | grep -oE '192\.168\.[0-9]+\.[0-9]+' | head -1)
+# Copy images into Ironic pod (serves from emptyDir /shared/html/images)
+info "Copying Ubuntu + IPA images into Ironic pod..."
+IRONIC_NS="baremetal-operator-system"
+IRONIC_POD=$(kubectl -n "${IRONIC_NS}" get pod -l app=ironic -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+if [ -z "${IRONIC_POD}" ]; then
+  warn "Ironic pod not found. Debug: kubectl get pods -n ${IRONIC_NS}"
+  exit 1
 fi
 
-SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-sshpass -p neo ssh ${SSH_OPTS} "neo@${MGMT_IP}" "sudo mkdir -p /shared/html/images" 2>/dev/null
-sshpass -p neo scp ${SSH_OPTS} "${IPA_KERNEL}" "neo@${MGMT_IP}:/tmp/ironic-python-agent.kernel" 2>/dev/null
-sshpass -p neo scp ${SSH_OPTS} "${IPA_RAMDISK}" "neo@${MGMT_IP}:/tmp/ironic-python-agent.initramfs" 2>/dev/null
-sshpass -p neo scp ${SSH_OPTS} "${FLATCAR_IMG}" "neo@${MGMT_IP}:/tmp/flatcar_production_qemu_image.img" 2>/dev/null
-sshpass -p neo ssh ${SSH_OPTS} "neo@${MGMT_IP}" "sudo mv /tmp/ironic-python-agent.kernel /tmp/ironic-python-agent.initramfs /tmp/flatcar_production_qemu_image.img /shared/html/images/" 2>/dev/null
-# Generate checksum file for Ironic image validation
-sshpass -p neo ssh ${SSH_OPTS} "neo@${MGMT_IP}" "cd /shared/html/images && sudo sha512sum flatcar_production_qemu_image.img | sudo tee flatcar_production_qemu_image.img.DIGESTS" 2>/dev/null
-info "  Images copied to mgmt VM."
+kubectl -n "${IRONIC_NS}" exec "${IRONIC_POD}" -c ironic-httpd -- mkdir -p /shared/html/images
+
+kubectl cp "${IPA_KERNEL}" "${IRONIC_NS}/${IRONIC_POD}:/shared/html/images/ironic-python-agent.kernel" -c ironic-httpd
+kubectl cp "${IPA_RAMDISK}" "${IRONIC_NS}/${IRONIC_POD}:/shared/html/images/ironic-python-agent.initramfs" -c ironic-httpd
+kubectl cp "${WORKER_IMG}" "${IRONIC_NS}/${IRONIC_POD}:/shared/html/images/ubuntu-worker.img" -c ironic-httpd
+
+# Generate checksum inside the pod
+kubectl -n "${IRONIC_NS}" exec "${IRONIC_POD}" -c ironic-httpd -- \
+  sh -c 'cd /shared/html/images && sha512sum ubuntu-worker.img > ubuntu-worker.img.sha512sum'
+info "  Images copied into Ironic pod."
+
+# Verify images are served
+info "  Verifying image HTTP access..."
+kubectl -n "${IRONIC_NS}" exec "${IRONIC_POD}" -c ironic-httpd -- ls -la /shared/html/images/
 
 # --- Step 7: Register BareMetalHosts ---
 kubectl create namespace metal3 --dry-run=client -o yaml | kubectl apply -f -

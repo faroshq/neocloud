@@ -42,8 +42,8 @@ spec:
         matchLabels:
           feature: gpu
       image:
-        url: "http://172.16.20.10:6180/images/flatcar_production_qemu_image.img"
-        checksum: "http://172.16.20.10:6180/images/flatcar_production_qemu_image.img.DIGESTS"
+        url: "http://172.16.20.10:6180/images/ubuntu-worker.img"
+        checksum: "http://172.16.20.10:6180/images/ubuntu-worker.img.sha512sum"
         checksumType: sha512
         format: qcow2
 ---
@@ -55,20 +55,15 @@ metadata:
 spec:
   template:
     spec:
-      format: ignition
-      ignition:
-        containerLinuxConfig:
-          additionalConfig: |
-            storage:
-              files: []
       preKubeadmCommands:
         - hostnamectl set-hostname "{{ ds.meta_data.hostname }}"
         - modprobe br_netfilter && modprobe overlay
         - sysctl -w net.bridge.bridge-nf-call-iptables=1
         - sysctl -w net.ipv4.ip_forward=1
-        - mkdir -p /opt/bin
-        - for bin in kubeadm kubelet kubectl; do curl -fL "https://dl.k8s.io/release/v1.35.3/bin/linux/amd64/${bin}" -o "/opt/bin/${bin}" && chmod +x "/opt/bin/${bin}"; done
-        - curl -fL "https://github.com/kubernetes-sigs/cri-tools/releases/download/v1.35.0/crictl-v1.35.0-linux-amd64.tar.gz" | tar -C /opt/bin -xz
+        - apt-get update && apt-get install -y apt-transport-https ca-certificates curl
+        - curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+        - echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /" > /etc/apt/sources.list.d/kubernetes.list
+        - apt-get update && apt-get install -y kubelet kubeadm kubectl && apt-mark hold kubelet kubeadm kubectl
       joinConfiguration:
         nodeRegistration:
           kubeletExtraArgs:

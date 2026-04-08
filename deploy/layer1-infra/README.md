@@ -8,7 +8,7 @@ For macOS development, skip Layer 1 and use `make lima-up` (Layer 2 dev) which p
 
 ## Dev Mode
 
-Uses libvirt + Metal3 + Ironic — the same provisioning pipeline as production. Workers PXE boot from Ironic and get Flatcar Container Linux.
+Uses libvirt + Metal3 + Ironic — the same provisioning pipeline as production. Workers PXE boot from Ironic and get Ubuntu 24.04.
 
 ### Prerequisites (Linux)
 
@@ -30,8 +30,8 @@ Linux host (KVM)
 │   ├── Metal3 / BMO
 │   └── Ironic (PXE + image server)
 │
-├── neo-worker-cpu (PXE booted → Flatcar)
-└── neo-worker-gpu (PXE booted → Flatcar)
+├── neo-worker-cpu (PXE booted → Ubuntu 24.04)
+└── neo-worker-gpu (PXE booted → Ubuntu 24.04)
 ```
 
 ### Usage
@@ -44,6 +44,8 @@ make layer1-dev-down        # Tear down everything
 ```
 
 ### Debugging
+
+#### Host (libvirt / sushy-tools)
 
 ```bash
 # List all VMs and their state
@@ -69,11 +71,67 @@ virsh console neo-mgmt
 # Check k3s status (inside mgmt VM)
 ssh neo@<mgmt-ip> kubectl get nodes
 
-# Check sushy-tools (virtual Redfish BMC)
-curl http://172.16.20.1:8000/redfish/v1/Systems
-
 # Tail VM serial output (useful for PXE boot debugging)
 virsh console neo-worker-cpu
+
+# Check worker VM domain XML (boot order, UEFI firmware)
+virsh dumpxml neo-worker-cpu | head -25
+```
+
+#### sushy-tools (virtual Redfish BMC)
+
+```bash
+# Check if sushy-emulator is running
+pgrep -fa sushy-emulator
+
+# List systems via Redfish API
+curl http://172.16.20.1:8000/redfish/v1/Systems
+
+# Check specific worker system
+curl http://172.16.20.1:8000/redfish/v1/Systems/neo-worker-cpu
+
+# Check power state
+curl http://172.16.20.1:8000/redfish/v1/Systems/neo-worker-cpu | jq .PowerState
+```
+
+#### Management cluster (k3s on neo-mgmt)
+
+```bash
+# SSH to mgmt VM (password: neo)
+sshpass -p neo ssh -o StrictHostKeyChecking=no neo@172.16.30.10
+
+# BareMetalHost status
+kubectl get bmh -n metal3
+kubectl get bmh -n metal3 -o yaml  # full status with error messages
+
+# BMO controller logs (watches BMH CRs, talks to Ironic)
+kubectl logs -n baremetal-operator-system deployment/baremetal-operator-controller-manager --tail=30
+
+# Ironic pod status (dnsmasq, ironic API, httpd)
+kubectl get pods -n baremetal-operator-system
+kubectl logs -n baremetal-operator-system deployment/baremetal-operator-ironic -c ironic --tail=20
+kubectl logs -n baremetal-operator-system deployment/baremetal-operator-ironic -c ironic-dnsmasq --tail=20
+kubectl logs -n baremetal-operator-system deployment/baremetal-operator-ironic -c ironic-httpd --tail=20
+
+# Check Ironic readiness probe
+kubectl exec -n baremetal-operator-system deployment/baremetal-operator-ironic -c ironic -- /bin/ironic-readiness
+
+# Verify Ironic configmaps (check IRONIC_ENDPOINT points to 172.16.20.10)
+kubectl get configmap -n baremetal-operator-system ironic -o yaml
+kubectl get configmap -n baremetal-operator-system -l app=ironic -o yaml
+
+# Verify worker image is served by Ironic httpd
+curl -I http://172.16.20.10:6180/images/ubuntu-worker.img
+
+# List images inside Ironic httpd container
+kubectl exec -n baremetal-operator-system deployment/baremetal-operator-ironic -c ironic-httpd -- ls /shared/html/images/
+
+# CAPI cluster and machine status
+kubectl get clusters,machines -A
+kubectl get metal3machines -A
+
+# Check CAPI controller logs
+kubectl logs -n capm3-system deployment/capm3-controller-manager --tail=30
 ```
 
 ### Resource Requirements
@@ -120,7 +178,7 @@ Layer 1 produces a **kubeconfig** for a Kubernetes cluster with KubeVirt install
 |---------|--------------|-------------------|
 | BMC | sushy-tools (virtual Redfish) | Real IPMI/Redfish |
 | Provisioning | Ironic (same) | Ironic (same) |
-| OS | Flatcar (same) | Flatcar (same) |
+| OS | Ubuntu 24.04 | Flatcar (prod) |
 | Cluster API | CAPI + Metal3 (same) | CAPI + Metal3 (same) |
 | BareMetalHost | Same CRs | Same CRs |
 | KubeVirt | Software emulation | KVM + VFIO |
