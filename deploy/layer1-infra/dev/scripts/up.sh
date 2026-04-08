@@ -228,6 +228,7 @@ sshpass -p neo ssh ${SSH_OPTS} "neo@${MGMT_IP}" "cd /shared/html/images && sudo 
 info "  Images copied to mgmt VM."
 
 # --- Step 7: Register BareMetalHosts ---
+kubectl create namespace metal3 --dry-run=client -o yaml | kubectl apply -f -
 info "Registering BareMetalHosts..."
 kubectl apply -f "${DEV_DIR}/metal3/baremetalhost-cpu.yaml"
 kubectl apply -f "${DEV_DIR}/metal3/baremetalhost-gpu.yaml"
