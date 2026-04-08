@@ -1,0 +1,10 @@
+# Kube-OVN dev values — matches workload-cluster.yaml CIDRs
+replicaCount: 1
+
+IFACE: "ens4"
+
+POD_CIDR: "10.245.0.0/16"
+SVC_CIDR: "10.97.0.0/16"
+
+ENABLE_LB: true
+ENABLE_NP: true

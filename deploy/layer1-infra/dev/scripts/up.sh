@@ -9,8 +9,8 @@ set -euo pipefail
 #
 # Creates 3 VMs via libvirt:
 #   neo-mgmt      — management cluster (k3s + Metal3 + Ironic)
-#   neo-worker-cpu — PXE booted by Ironic, provisioned with Flatcar
-#   neo-worker-gpu — PXE booted by Ironic, provisioned with Flatcar
+#   neo-worker-cpu — PXE booted by Ironic, provisioned with Ubuntu 24.04
+#   neo-worker-gpu — PXE booted by Ironic, provisioned with Ubuntu 24.04
 #
 # Prerequisites (Linux):
 #   sudo apt install libvirt-daemon-system qemu-kvm virtinst genisoimage pipx
@@ -283,9 +283,62 @@ kubectl apply -f "${DEV_DIR}/capi/workload-cluster.yaml"
 kubectl apply -f "${DEV_DIR}/capi/cpu-workers.yaml"
 kubectl apply -f "${DEV_DIR}/capi/gpu-workers.yaml"
 
-info "Metal3 is now provisioning workers (PXE → Flatcar)..."
-info "This takes several minutes. Run 'make layer1-dev-status' to monitor."
+info "Metal3 is now provisioning workers (PXE → Ubuntu)..."
+info "Waiting for workload cluster control plane to be ready..."
+
+# Wait for the control plane to initialize (machine becomes Running)
+for i in $(seq 1 120); do
+  CP_READY=$(kubectl -n metal3 get kubeadmcontrolplane workload-cluster-control-plane -o jsonpath='{.status.ready}' 2>/dev/null || true)
+  if [ "${CP_READY}" = "true" ]; then
+    info "  Control plane is ready."
+    break
+  fi
+  if [ $((i % 12)) -eq 0 ]; then
+    info "  Still waiting for control plane... (${i}/120)"
+    kubectl get machines -n metal3 2>/dev/null || true
+  fi
+  if [ "${i}" -eq 120 ]; then
+    warn "Timed out waiting for control plane. Check: kubectl get machines -n metal3"
+    exit 1
+  fi
+  sleep 10
+done
+
+# --- Step 9: Install kube-ovn CNI on workload cluster ---
+info "Extracting workload cluster kubeconfig..."
+WORKLOAD_KUBECONFIG="${NEO_DATADIR}/workload-kubeconfig"
+kubectl get secret workload-cluster-kubeconfig -n metal3 -o jsonpath='{.data.value}' | base64 -d > "${WORKLOAD_KUBECONFIG}"
+
+info "Labeling control plane node for kube-ovn..."
+KUBECONFIG="${WORKLOAD_KUBECONFIG}" kubectl label node worker-cpu kube-ovn/role=master --overwrite || true
+
+info "Installing kube-ovn CNI on workload cluster..."
+helm repo add kube-ovn https://kubeovn.github.io/kube-ovn 2>/dev/null || true
+helm repo update kube-ovn
+helm upgrade --install kube-ovn kube-ovn/kube-ovn \
+  --namespace kube-system \
+  --kubeconfig "${WORKLOAD_KUBECONFIG}" \
+  --values "${DEV_DIR}/kube-ovn/values.yaml" \
+  --wait --timeout 300s
+
+info "Waiting for workload cluster nodes to be Ready..."
+for i in $(seq 1 60); do
+  NOT_READY=$(KUBECONFIG="${WORKLOAD_KUBECONFIG}" kubectl get nodes --no-headers 2>/dev/null | grep -c "NotReady" || true)
+  if [ "${NOT_READY}" = "0" ]; then
+    info "  All workload cluster nodes are Ready."
+    break
+  fi
+  if [ $((i % 6)) -eq 0 ]; then
+    info "  Waiting for nodes... (${i}/60)"
+    KUBECONFIG="${WORKLOAD_KUBECONFIG}" kubectl get nodes 2>/dev/null || true
+  fi
+  if [ "${i}" -eq 60 ]; then
+    warn "Some nodes are still NotReady. Check: KUBECONFIG=${WORKLOAD_KUBECONFIG} kubectl get nodes"
+  fi
+  sleep 10
+done
+
 info ""
-info "Once workers are ready, the kubeconfig is your Layer 1 output."
-info "Run 'make layer1-dev-kubeconfig' to extract it."
+info "Layer 1 dev environment is ready!"
+info "Workload cluster kubeconfig: ${WORKLOAD_KUBECONFIG}"
 info "Use this kubeconfig for Layer 2+ on any machine (including macOS)."
