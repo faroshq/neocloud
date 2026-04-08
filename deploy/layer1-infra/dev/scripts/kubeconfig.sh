@@ -26,10 +26,20 @@ if [ -z "${MGMT_IP}" ]; then
 fi
 
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-sshpass -p neo scp ${SSH_OPTS} \
-  "neo@${MGMT_IP}:/root/kubeconfig-external" "${KUBECONFIG_PATH}" 2>/dev/null || \
-  sshpass -p neo ssh ${SSH_OPTS} \
-    "neo@${MGMT_IP}" "sudo cat /root/kubeconfig-external" > "${KUBECONFIG_PATH}"
 
-echo "==> Kubeconfig written to ${KUBECONFIG_PATH}"
-echo "    This is the Layer 1 output — use it for Layer 2+ on any machine."
+# Retry — kubeconfig may not exist yet if cloud-init is still running
+for i in $(seq 1 30); do
+  if sshpass -p neo ssh ${SSH_OPTS} "neo@${MGMT_IP}" "sudo test -f /root/kubeconfig-external" 2>/dev/null; then
+    sshpass -p neo ssh ${SSH_OPTS} "neo@${MGMT_IP}" "sudo cat /root/kubeconfig-external" > "${KUBECONFIG_PATH}" 2>/dev/null
+    echo "==> Kubeconfig written to ${KUBECONFIG_PATH}"
+    echo "    This is the Layer 1 output — use it for Layer 2+ on any machine."
+    exit 0
+  fi
+  if [ $((i % 6)) -eq 0 ]; then
+    echo "==>   Waiting for kubeconfig (${i}/30)... cloud-init may still be running."
+  fi
+  sleep 5
+done
+
+echo "ERROR: Timed out waiting for kubeconfig. Check: virsh console neo-mgmt"
+exit 1
