@@ -68,12 +68,17 @@ spec:
                 name: "en*"
               dhcp4: true
         EOF
+      - chmod 600 /etc/netplan/99-all-dhcp.yaml
       - netplan apply || true
       - sleep 5
       - modprobe br_netfilter && modprobe overlay
       - sysctl -w net.bridge.bridge-nf-call-iptables=1
       - sysctl -w net.ipv4.ip_forward=1
-      - apt-get update && apt-get install -y apt-transport-https ca-certificates curl
+      - apt-get update && apt-get install -y apt-transport-https ca-certificates curl containerd
+      # Configure containerd with systemd cgroup driver
+      - mkdir -p /etc/containerd
+      - containerd config default | sed 's/SystemdCgroup = false/SystemdCgroup = true/' > /etc/containerd/config.toml
+      - systemctl restart containerd && systemctl enable containerd
       - curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
       - echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /" > /etc/apt/sources.list.d/kubernetes.list
       - apt-get update && apt-get install -y kubelet kubeadm kubectl && apt-mark hold kubelet kubeadm kubectl
