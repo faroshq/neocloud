@@ -1,0 +1,69 @@
+# CPU worker MachineDeployment for dev
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  name: workload-cluster-cpu-workers
+  namespace: metal3
+spec:
+  clusterName: workload-cluster
+  replicas: 1
+  selector:
+    matchLabels:
+      cluster.x-k8s.io/cluster-name: workload-cluster
+      pool: cpu
+  template:
+    metadata:
+      labels:
+        cluster.x-k8s.io/cluster-name: workload-cluster
+        pool: cpu
+    spec:
+      clusterName: workload-cluster
+      version: v1.30.4
+      bootstrap:
+        configRef:
+          apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+          kind: KubeadmConfigTemplate
+          name: workload-cluster-cpu-workers
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: Metal3MachineTemplate
+        name: workload-cluster-cpu-workers
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: Metal3MachineTemplate
+metadata:
+  name: workload-cluster-cpu-workers
+  namespace: metal3
+spec:
+  template:
+    spec:
+      hostSelector:
+        matchLabels:
+          feature: cpu
+      image:
+        url: "http://172.16.20.10:6180/images/flatcar_production_qemu_image.img"
+        checksum: "http://172.16.20.10:6180/images/flatcar_production_qemu_image.img.DIGESTS"
+        checksumType: sha512
+        format: qcow2
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: workload-cluster-cpu-workers
+  namespace: metal3
+spec:
+  template:
+    spec:
+      preKubeadmCommands:
+        - hostnamectl set-hostname "{{ ds.meta_data.hostname }}"
+        - modprobe br_netfilter
+        - modprobe overlay
+        - sysctl -w net.bridge.bridge-nf-call-iptables=1
+        - sysctl -w net.ipv4.ip_forward=1
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+            cloud-provider: ""
+            node-labels: "nodepool=cpu"
+          name: "{{ ds.meta_data.hostname }}"

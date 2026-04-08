@@ -1,0 +1,53 @@
+<!-- Management VM: boots from Ubuntu cloud image with cloud-init -->
+<!-- Requires Linux host with libvirt system daemon (qemu:///system) -->
+<domain type="kvm">
+  <name>neo-mgmt</name>
+  <memory unit="GiB">8</memory>
+  <vcpu>4</vcpu>
+  <os>
+    <type arch="x86_64">hvm</type>
+    <boot dev="hd"/>
+  </os>
+  <features>
+    <acpi/>
+    <apic/>
+  </features>
+  <cpu mode="host-passthrough"/>
+  <devices>
+    <!-- OS disk (created from cloud image by up.sh) -->
+    <disk type="file" device="disk">
+      <driver name="qemu" type="qcow2"/>
+      <source file="NEO_DATADIR/neo-mgmt.qcow2"/>
+      <target dev="vda" bus="virtio"/>
+    </disk>
+    <!-- cloud-init ISO -->
+    <disk type="file" device="cdrom">
+      <driver name="qemu" type="raw"/>
+      <source file="NEO_DATADIR/neo-mgmt-cidata.iso"/>
+      <target dev="sda" bus="sata"/>
+      <readonly/>
+    </disk>
+    <!-- NIC 1: default (NAT, internet) -->
+    <interface type="network">
+      <source network="default"/>
+      <model type="virtio"/>
+    </interface>
+    <!-- NIC 2: provisioning network -->
+    <interface type="network">
+      <source network="neo-provisioning"/>
+      <model type="virtio"/>
+    </interface>
+    <!-- NIC 3: baremetal network -->
+    <interface type="network">
+      <source network="neo-baremetal"/>
+      <model type="virtio"/>
+    </interface>
+    <serial type="pty">
+      <target port="0"/>
+    </serial>
+    <console type="pty">
+      <target type="serial" port="0"/>
+    </console>
+    <graphics type="vnc" port="-1" autoport="yes"/>
+  </devices>
+</domain>

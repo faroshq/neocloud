@@ -1,4 +1,4 @@
-.PHONY: build build-platform build-cli build-console clean generate lint test tidy codegen crds tools verify-codegen docker-platform docker-console run-console console-dev layer1-dev-up layer1-dev-down layer1-dev-status layer1-dev-kubeconfig layer2-dev-up layer2-dev-down layer3-dev-up layer3-dev-down run-dev dev-login dev-up dev-down demo-vm demo-vm-clean lima-up lima-down lima-kubeconfig lima-status zitadel-up zitadel-down
+.PHONY: build build-platform build-cli build-console clean generate lint test tidy codegen crds tools verify-codegen docker-platform docker-console run-console console-dev layer1-dev-up layer1-dev-down layer1-dev-status layer1-dev-kubeconfig lima-up lima-down lima-status lima-kubeconfig layer2-dev-up layer2-dev-down layer3-dev-up layer3-dev-down run-dev dev-login dev-up dev-down demo-vm demo-vm-clean zitadel-up zitadel-down
 
 PLATFORM_DIR := src/platform
 CONSOLE_DIR := src/console
@@ -97,6 +97,8 @@ tidy:
 #   https://localhost:10443/ui/console?login_hint=zitadel-admin@zitadel.localhost
 
 ZITADEL_COMPOSE_DIR := deploy/layer2-platform/dev/zitadel-compose
+LIMA_CONFIG := deploy/layer2-platform/dev/lima/kubevirt-dev.yaml
+LIMA_VM_NAME := kubevirt-dev
 LAYER1_SCRIPTS := deploy/layer1-infra/dev/scripts
 WORKLOAD_KUBECONFIG ?= .platform-data/workload-kubeconfig
 
@@ -104,19 +106,42 @@ OIDC_ISSUER_URL ?= https://localhost:10443
 OIDC_CLIENT_ID ?= 366808256712106243
 CONSOLE_ADDR ?= localhost:1234
 
-# --- Layer 1: Infrastructure (3-node Lima cluster) ---
+# --- Layer 1: Infrastructure (Linux only, libvirt + Metal3) ---
+# Requires a Linux host with KVM. Produces a kubeconfig.
+# For macOS dev, use Lima targets below instead.
 
-layer1-dev-up: ## Create 3-node dev cluster (mgmt + cpu + gpu workers)
+layer1-dev-up: ## [Linux] Create dev cluster: libvirt VMs + Metal3 + Ironic + Flatcar
 	$(LAYER1_SCRIPTS)/up.sh
 
-layer1-dev-down: ## Tear down all Lima VMs
+layer1-dev-down: ## [Linux] Tear down all libvirt VMs and networks
 	$(LAYER1_SCRIPTS)/down.sh
 
-layer1-dev-status: ## Check cluster and KubeVirt status
+layer1-dev-status: ## [Linux] Check VM, Metal3, and cluster status
 	$(LAYER1_SCRIPTS)/status.sh
 
-layer1-dev-kubeconfig: ## Extract kubeconfig from management node
+layer1-dev-kubeconfig: ## [Linux] Extract kubeconfig from management VM
 	$(LAYER1_SCRIPTS)/kubeconfig.sh
+
+# --- Lima: Local workload cluster (macOS/Linux, replaces Layer 1 for dev) ---
+# Provides k3s + KubeVirt in a Lima VM. Same output as Layer 1: a kubeconfig.
+
+lima-up: ## Create Lima VM with k3s + KubeVirt (workload cluster)
+	limactl start --name $(LIMA_VM_NAME) $(LIMA_CONFIG)
+	@mkdir -p .platform-data
+	limactl shell $(LIMA_VM_NAME) sudo cat /root/kubeconfig-external > $(WORKLOAD_KUBECONFIG)
+	@echo "Workload cluster ready. Kubeconfig: $(WORKLOAD_KUBECONFIG)"
+
+lima-down: ## Delete Lima workload VM
+	limactl delete --force $(LIMA_VM_NAME) 2>/dev/null || true
+	rm -f $(WORKLOAD_KUBECONFIG)
+
+lima-status: ## Show Lima VM status
+	limactl list $(LIMA_VM_NAME) 2>/dev/null || echo "VM not found"
+
+lima-kubeconfig: ## Extract kubeconfig from Lima VM
+	@mkdir -p .platform-data
+	limactl shell $(LIMA_VM_NAME) sudo cat /root/kubeconfig-external > $(WORKLOAD_KUBECONFIG)
+	@echo "Kubeconfig written to $(WORKLOAD_KUBECONFIG)"
 
 # --- Layer 2: Platform (Zitadel OIDC) ---
 
@@ -178,16 +203,12 @@ demo-vm-clean: ## Delete the demo VM
 
 # --- Full dev environment lifecycle ---
 
-dev-up: layer1-dev-up layer1-dev-kubeconfig layer2-dev-up ## Bring up all dev dependencies
+dev-up: lima-up layer2-dev-up ## Bring up all dev dependencies (Lima + Zitadel)
 	@echo "Dev environment ready. Run 'make run-dev' to start the platform."
 
-dev-down: layer2-dev-down layer1-dev-down ## Tear down all dev dependencies
+dev-down: layer2-dev-down lima-down ## Tear down all dev dependencies
 
 # --- Backward compatibility aliases ---
 
-lima-up: layer1-dev-up
-lima-down: layer1-dev-down
-lima-kubeconfig: layer1-dev-kubeconfig
-lima-status: layer1-dev-status
 zitadel-up: layer2-dev-up
 zitadel-down: layer2-dev-down

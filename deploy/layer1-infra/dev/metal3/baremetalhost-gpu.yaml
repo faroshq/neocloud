@@ -1,0 +1,30 @@
+# BareMetalHost for dev GPU worker — points to sushy-tools Redfish
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: worker-gpu-bmc-credentials
+  namespace: metal3
+type: Opaque
+stringData:
+  username: admin
+  password: password
+---
+apiVersion: metal3.io/v1alpha1
+kind: BareMetalHost
+metadata:
+  name: worker-gpu
+  namespace: metal3
+  labels:
+    role: workload
+    feature: gpu
+spec:
+  bootMACAddress: "52:54:00:aa:bb:02"
+  bmc:
+    # sushy-tools Redfish endpoint (runs on host provisioning bridge IP)
+    address: "redfish+http://172.16.20.1:8000/redfish/v1/Systems/neo-worker-gpu"
+    credentialsName: worker-gpu-bmc-credentials
+  rootDeviceHints:
+    deviceName: /dev/vda
+  online: true
+  automatedCleaningMode: disabled

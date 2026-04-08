@@ -1,144 +1,247 @@
 #!/bin/bash
 set -euo pipefail
 
-# Layer 1 Dev: Create 3-node cluster with Lima (mgmt + cpu-worker + gpu-worker)
+# Layer 1 Dev: Metal3 with libvirt
 #
-# Workers connect to mgmt via Lima's host gateway IP (192.168.5.2) on the
-# forwarded port 16443. No socket_vmnet or shared networks required.
+# *** Requires a Linux host with KVM ***
+# Layer 1 handles bare metal → Kubernetes provisioning.
+# The output is a kubeconfig — the boundary for Layer 2+.
+#
+# Creates 3 VMs via libvirt:
+#   neo-mgmt      — management cluster (k3s + Metal3 + Ironic)
+#   neo-worker-cpu — PXE booted by Ironic, provisioned with Flatcar
+#   neo-worker-gpu — PXE booted by Ironic, provisioned with Flatcar
+#
+# Prerequisites (Linux):
+#   sudo apt install libvirt-daemon-system qemu-kvm virtinst genisoimage
+#   pip3 install sushy-tools
+#   curl -L https://github.com/kubernetes-sigs/cluster-api/releases/latest/download/clusterctl-linux-amd64 -o /usr/local/bin/clusterctl && chmod +x /usr/local/bin/clusterctl
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LIMA_DIR="${SCRIPT_DIR}/../lima"
 DEV_DIR="${SCRIPT_DIR}/.."
+REPO_ROOT="${DEV_DIR}/../../.."
+NEO_DATADIR="${REPO_ROOT}/.platform-data/libvirt"
 KUBEVIRT_VERSION="${KUBEVIRT_VERSION:-v1.8.1}"
+FLATCAR_CHANNEL="${FLATCAR_CHANNEL:-stable}"
+FLATCAR_VERSION="${FLATCAR_VERSION:-current}"
 
-MGMT_VM="neo-mgmt"
-CPU_VM="neo-cpu"
-GPU_VM="neo-gpu"
-
-# Lima host gateway IP (accessible from inside any Lima VM)
-HOST_GW="192.168.5.2"
-HOST_K3S_PORT="16443"
+VIRSH="virsh --connect qemu:///system"
 
 info() { echo "==> $*"; }
+warn() { echo "==> WARNING: $*"; }
 
-# --- Helper: create and start a Lima VM ---
-ensure_vm() {
-  local name="$1" config="$2"
-  if limactl list -q 2>/dev/null | grep -q "^${name}$"; then
-    info "VM '${name}' already exists, skipping creation."
+# --- Platform check ---
+if [ "$(uname)" != "Linux" ]; then
+  echo "ERROR: Layer 1 dev requires a Linux host with KVM."
+  echo "       Layer 1 produces a kubeconfig — use it from any OS for Layer 2+."
+  exit 1
+fi
+
+# --- Preflight checks ---
+for cmd in virsh qemu-img genisoimage sushy-emulator; do
+  if ! command -v "${cmd}" &>/dev/null; then
+    echo "ERROR: '${cmd}' not found. Install prerequisites:"
+    echo "  sudo apt install libvirt-daemon-system qemu-kvm virtinst genisoimage"
+    echo "  pip3 install sushy-tools"
+    exit 1
+  fi
+done
+
+mkdir -p "${NEO_DATADIR}"
+
+# --- Step 1: Create libvirt networks ---
+info "Setting up libvirt networks..."
+for net in neo-provisioning neo-baremetal; do
+  net_file="${net#neo-}"
+
+  if ! ${VIRSH} net-info "${net}" &>/dev/null; then
+    ${VIRSH} net-define "${DEV_DIR}/libvirt/networks/${net_file}.xml"
+    info "  Defined network '${net}'."
+  fi
+
+  ACTIVE=$(${VIRSH} net-info "${net}" 2>/dev/null | grep "^Active:" | awk '{print $2}')
+  if [ "${ACTIVE}" != "yes" ]; then
+    ${VIRSH} net-start "${net}"
+    info "  Started network '${net}'."
   else
-    info "Creating VM '${name}'..."
-    limactl create --name="${name}" "${config}"
+    info "  Network '${net}' already active."
   fi
-  if ! limactl list 2>/dev/null | grep "${name}" | grep -q Running; then
-    info "Starting VM '${name}'..."
-    limactl start "${name}"
-  fi
-}
 
-# --- Helper: join a worker to the mgmt k3s ---
-join_worker() {
-  local name="$1" token="$2"
-  info "Joining '${name}' to k3s cluster via ${HOST_GW}:${HOST_K3S_PORT}..."
-  limactl shell "${name}" sudo bash -c "
-    if systemctl is-active --quiet k3s-agent 2>/dev/null; then
-      echo 'k3s-agent already running, skipping.'
-      exit 0
-    fi
-    curl -sfL https://get.k3s.io | K3S_URL='https://${HOST_GW}:${HOST_K3S_PORT}' K3S_TOKEN='${token}' sh -
-    echo 'Waiting for k3s-agent...'
-    for i in \$(seq 1 60); do
-      systemctl is-active --quiet k3s-agent && break
-      sleep 3
-    done
-    echo 'k3s-agent is running.'
-  "
-}
+  ${VIRSH} net-autostart "${net}" 2>/dev/null || true
+done
 
-# --- Step 1: Management node ---
-ensure_vm "${MGMT_VM}" "${LIMA_DIR}/mgmt.yaml"
+# Ensure default network is active (ships with libvirt on Linux)
+ACTIVE=$(${VIRSH} net-info default 2>/dev/null | grep "^Active:" | awk '{print $2}' || echo "no")
+if [ "${ACTIVE}" != "yes" ]; then
+  ${VIRSH} net-start default 2>/dev/null || true
+fi
 
-info "Waiting for k3s server on ${MGMT_VM}..."
-for i in $(seq 1 120); do
-  if limactl shell "${MGMT_VM}" sudo /usr/local/bin/kubectl get nodes 2>/dev/null | grep -q " Ready"; then
+# --- Step 2: Download images ---
+info "Checking images..."
+
+# Ubuntu cloud image for mgmt VM
+UBUNTU_IMG="${NEO_DATADIR}/ubuntu-24.04-cloudimg-amd64.img"
+if [ ! -f "${UBUNTU_IMG}" ]; then
+  info "  Downloading Ubuntu 24.04 cloud image..."
+  curl -L -o "${UBUNTU_IMG}" \
+    "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
+fi
+
+# Flatcar image for workers (served by Ironic)
+FLATCAR_IMG="${NEO_DATADIR}/flatcar_production_qemu_image.img"
+if [ ! -f "${FLATCAR_IMG}" ]; then
+  info "  Downloading Flatcar Container Linux..."
+  curl -L -o "${FLATCAR_IMG}.bz2" \
+    "https://${FLATCAR_CHANNEL}.release.flatcar-linux.net/amd64-usr/${FLATCAR_VERSION}/flatcar_production_qemu_image.img.bz2"
+  bunzip2 "${FLATCAR_IMG}.bz2"
+fi
+
+# IPA (Ironic Python Agent) kernel + ramdisk
+IPA_KERNEL="${NEO_DATADIR}/ironic-python-agent.kernel"
+IPA_RAMDISK="${NEO_DATADIR}/ironic-python-agent.initramfs"
+if [ ! -f "${IPA_KERNEL}" ]; then
+  info "  Downloading IPA kernel..."
+  curl -L -o "${IPA_KERNEL}" \
+    "https://tarballs.opendev.org/openstack/ironic-python-agent/dib/files/ipa-centos9-master.kernel"
+fi
+if [ ! -f "${IPA_RAMDISK}" ]; then
+  info "  Downloading IPA ramdisk..."
+  curl -L -o "${IPA_RAMDISK}" \
+    "https://tarballs.opendev.org/openstack/ironic-python-agent/dib/files/ipa-centos9-master.initramfs"
+fi
+
+# --- Step 3: Create management VM ---
+info "Creating management VM..."
+MGMT_DISK="${NEO_DATADIR}/neo-mgmt.qcow2"
+MGMT_CIDATA="${NEO_DATADIR}/neo-mgmt-cidata.iso"
+
+if ${VIRSH} dominfo neo-mgmt &>/dev/null; then
+  info "  VM 'neo-mgmt' already exists."
+else
+  # Create disk from cloud image
+  cp "${UBUNTU_IMG}" "${MGMT_DISK}"
+  qemu-img resize "${MGMT_DISK}" 40G
+
+  # Create cloud-init ISO
+  genisoimage -output "${MGMT_CIDATA}" -volid cidata -joliet -rock \
+    "${DEV_DIR}/libvirt/cloud-init/user-data" \
+    "${DEV_DIR}/libvirt/cloud-init/meta-data"
+
+  # Update domain XML with actual paths and define
+  sed "s|NEO_DATADIR|${NEO_DATADIR}|g" "${DEV_DIR}/libvirt/domains/mgmt.xml" | \
+    ${VIRSH} define /dev/stdin
+  ${VIRSH} start neo-mgmt
+  info "  Management VM created and started."
+fi
+
+# Wait for mgmt to be ready
+info "Waiting for management VM (cloud-init + k3s)..."
+for i in $(seq 1 180); do
+  if ${VIRSH} qemu-agent-command neo-mgmt '{"execute":"guest-exec","arguments":{"path":"/bin/test","arg":["-f","/root/.mgmt-ready"],"capture-output":true}}' &>/dev/null; then
+    info "  Management VM is ready."
     break
+  fi
+  if [ "${i}" -eq 180 ]; then
+    warn "Timed out waiting for management VM. Check: virsh console neo-mgmt"
+    exit 1
   fi
   sleep 5
 done
 
-# --- Step 2: Extract join token ---
-K3S_TOKEN="$(limactl shell "${MGMT_VM}" sudo cat /root/node-token)"
-info "Got join token."
-
-# --- Step 3: Create and join workers ---
-ensure_vm "${CPU_VM}" "${LIMA_DIR}/workload-cpu.yaml"
-ensure_vm "${GPU_VM}" "${LIMA_DIR}/workload-gpu.yaml"
-
-join_worker "${CPU_VM}" "${K3S_TOKEN}" &
-join_worker "${GPU_VM}" "${K3S_TOKEN}" &
-wait
-
-# --- Step 4: Wait for all nodes ---
-info "Waiting for all 3 nodes to be Ready..."
-for i in $(seq 1 60); do
-  READY_COUNT=$(limactl shell "${MGMT_VM}" sudo /usr/local/bin/kubectl get nodes --no-headers 2>/dev/null | grep -c " Ready" || true)
-  if [ "${READY_COUNT}" -ge 3 ]; then
-    info "All 3 nodes are Ready."
-    break
+# --- Step 4: Create worker VM disks ---
+info "Creating worker VM disks..."
+for worker in neo-worker-cpu neo-worker-gpu; do
+  WORKER_DISK="${NEO_DATADIR}/${worker}.qcow2"
+  if [ ! -f "${WORKER_DISK}" ]; then
+    qemu-img create -f qcow2 "${WORKER_DISK}" 20G
+    info "  Created ${worker} disk."
   fi
-  sleep 5
 done
 
-# --- Step 5: Install KubeVirt ---
-info "Installing KubeVirt ${KUBEVIRT_VERSION}..."
-limactl shell "${MGMT_VM}" sudo /usr/local/bin/kubectl create namespace kubevirt --dry-run=client -o yaml | \
-  limactl shell "${MGMT_VM}" sudo /usr/local/bin/kubectl apply -f -
-limactl shell "${MGMT_VM}" sudo /usr/local/bin/kubectl apply -f \
-  "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml"
-
-info "Waiting for virt-operator..."
-limactl shell "${MGMT_VM}" sudo /usr/local/bin/kubectl -n kubevirt rollout status deployment/virt-operator --timeout=900s
-
-info "Applying KubeVirt CR (software emulation)..."
-cat "${DEV_DIR}/kubevirt-cr-dev.yaml" | limactl shell "${MGMT_VM}" sudo /usr/local/bin/kubectl apply -f -
-
-info "Waiting for KubeVirt..."
-limactl shell "${MGMT_VM}" sudo /usr/local/bin/kubectl -n kubevirt wait --for=condition=Available kubevirt/kubevirt --timeout=900s
-
-# --- Step 6: Label nodes ---
-info "Labeling worker nodes..."
-# Find worker node names (not the mgmt/server node)
-MGMT_HOSTNAME="$(limactl shell "${MGMT_VM}" hostname)"
-ALL_NODES=$(limactl shell "${MGMT_VM}" sudo /usr/local/bin/kubectl get nodes --no-headers -o custom-columns=":metadata.name")
-
-for node in ${ALL_NODES}; do
-  if [ "${node}" = "${MGMT_HOSTNAME}" ]; then
-    continue
-  fi
-  # Label first non-mgmt worker as cpu, second as gpu
-  if [ -z "${CPU_LABELED:-}" ]; then
-    limactl shell "${MGMT_VM}" sudo /usr/local/bin/kubectl label node "${node}" workload-type=cpu --overwrite
-    CPU_LABELED=1
-    info "  ${node} → workload-type=cpu"
+# Define worker VMs (but don't start — Metal3 will power them on)
+for worker in worker-cpu worker-gpu; do
+  if ${VIRSH} dominfo "neo-${worker}" &>/dev/null; then
+    info "  VM 'neo-${worker}' already defined."
   else
-    limactl shell "${MGMT_VM}" sudo /usr/local/bin/kubectl label node "${node}" workload-type=gpu gpu=true --overwrite
-    info "  ${node} → workload-type=gpu, gpu=true"
+    sed "s|NEO_DATADIR|${NEO_DATADIR}|g" "${DEV_DIR}/libvirt/domains/${worker}.xml" | \
+      ${VIRSH} define /dev/stdin
+    info "  Defined VM 'neo-${worker}' (powered off, waiting for Metal3)."
   fi
 done
 
-# --- Step 7: Install virtctl ---
-info "Installing virtctl on mgmt node..."
-limactl shell "${MGMT_VM}" sudo bash -c "
-  curl -sL -o /usr/local/bin/virtctl \
-    'https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/virtctl-${KUBEVIRT_VERSION}-linux-amd64'
-  chmod +x /usr/local/bin/virtctl
-"
+# --- Step 5: Start sushy-tools ---
+info "Starting sushy-tools (virtual Redfish BMC)..."
+if pgrep -f sushy-emulator &>/dev/null; then
+  info "  sushy-emulator already running."
+else
+  sushy-emulator --libvirt-uri "qemu:///system" \
+    --bind 172.16.20.1 --port 8000 &
+  SUSHY_PID=$!
+  echo "${SUSHY_PID}" > "${NEO_DATADIR}/sushy-emulator.pid"
+  info "  sushy-emulator started (PID ${SUSHY_PID}) on 172.16.20.1:8000"
+fi
 
-# --- Step 8: Extract kubeconfig ---
+# --- Step 6: Install Metal3 on management cluster ---
+info "Getting kubeconfig from management VM..."
 "${SCRIPT_DIR}/kubeconfig.sh"
+export KUBECONFIG="${REPO_ROOT}/.platform-data/workload-kubeconfig"
 
+info "Installing cert-manager..."
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+kubectl -n cert-manager wait --for=condition=Available deployment --all --timeout=300s
+
+info "Installing Cluster API + Metal3 provider..."
+if ! command -v clusterctl &>/dev/null; then
+  warn "clusterctl not found. Install it first."
+  exit 1
+fi
+clusterctl init --infrastructure metal3
+
+info "Deploying Ironic configuration..."
+kubectl create namespace metal3 --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f "${DEV_DIR}/metal3/ironic.yaml"
+
+# Copy images to mgmt VM for Ironic to serve via HTTP
+info "Copying Flatcar + IPA images to mgmt VM for Ironic HTTP server..."
+MGMT_IP=$(${VIRSH} domifaddr neo-mgmt --source agent 2>/dev/null | grep -oE '172\.16\.30\.[0-9]+' | head -1)
+if [ -z "${MGMT_IP}" ]; then
+  MGMT_IP=$(${VIRSH} domifaddr neo-mgmt 2>/dev/null | grep -oE '192\.168\.[0-9]+\.[0-9]+' | head -1)
+fi
+
+SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+ssh ${SSH_OPTS} "neo@${MGMT_IP}" "sudo mkdir -p /shared/html/images" 2>/dev/null
+scp ${SSH_OPTS} "${IPA_KERNEL}" "neo@${MGMT_IP}:/tmp/ironic-python-agent.kernel" 2>/dev/null
+scp ${SSH_OPTS} "${IPA_RAMDISK}" "neo@${MGMT_IP}:/tmp/ironic-python-agent.initramfs" 2>/dev/null
+scp ${SSH_OPTS} "${FLATCAR_IMG}" "neo@${MGMT_IP}:/tmp/flatcar.img" 2>/dev/null
+ssh ${SSH_OPTS} "neo@${MGMT_IP}" "sudo mv /tmp/ironic-python-agent.kernel /tmp/ironic-python-agent.initramfs /tmp/flatcar.img /shared/html/images/" 2>/dev/null
+info "  Images copied to mgmt VM."
+
+# --- Step 7: Register BareMetalHosts ---
+info "Registering BareMetalHosts..."
+kubectl apply -f "${DEV_DIR}/metal3/baremetalhost-cpu.yaml"
+kubectl apply -f "${DEV_DIR}/metal3/baremetalhost-gpu.yaml"
+
+info "Waiting for BareMetalHosts to be inspected..."
+for bmh in worker-cpu worker-gpu; do
+  for i in $(seq 1 60); do
+    STATE=$(kubectl -n metal3 get bmh "${bmh}" -o jsonpath='{.status.provisioning.state}' 2>/dev/null || echo "unknown")
+    if [ "${STATE}" = "available" ] || [ "${STATE}" = "ready" ]; then
+      info "  ${bmh}: ${STATE}"
+      break
+    fi
+    sleep 10
+  done
+done
+
+# --- Step 8: Create workload cluster via CAPI ---
+info "Creating workload cluster..."
+kubectl apply -f "${DEV_DIR}/capi/workload-cluster.yaml"
+kubectl apply -f "${DEV_DIR}/capi/cpu-workers.yaml"
+kubectl apply -f "${DEV_DIR}/capi/gpu-workers.yaml"
+
+info "Metal3 is now provisioning workers (PXE → Flatcar)..."
+info "This takes several minutes. Run 'make layer1-dev-status' to monitor."
 info ""
-info "Layer 1 dev environment is ready!"
-info "  3 nodes: ${MGMT_VM} (mgmt), ${CPU_VM} (cpu), ${GPU_VM} (gpu)"
-info "  Kubeconfig: .platform-data/workload-kubeconfig"
-info "  Run 'make layer1-dev-status' to check status."
+info "Once workers are ready, the kubeconfig is your Layer 1 output."
+info "Run 'make layer1-dev-kubeconfig' to extract it."
+info "Use this kubeconfig for Layer 2+ on any machine (including macOS)."

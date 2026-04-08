@@ -1,0 +1,8 @@
+<network>
+  <name>neo-provisioning</name>
+  <forward mode="nat"/>
+  <bridge name="neo-prov" stp="on" delay="0"/>
+  <ip address="172.16.20.1" netmask="255.255.255.0">
+    <!-- DHCP is managed by Ironic's dnsmasq, not libvirt -->
+  </ip>
+</network>

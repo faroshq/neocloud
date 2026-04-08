@@ -1,0 +1,44 @@
+<!-- CPU worker VM: PXE boots from Ironic, gets Flatcar -->
+<!-- Requires Linux host with libvirt system daemon (qemu:///system) -->
+<domain type="kvm">
+  <name>neo-worker-cpu</name>
+  <memory unit="GiB">4</memory>
+  <vcpu>2</vcpu>
+  <os>
+    <type arch="x86_64">hvm</type>
+    <!-- PXE boot first, then disk -->
+    <boot dev="network"/>
+    <boot dev="hd"/>
+  </os>
+  <features>
+    <acpi/>
+    <apic/>
+  </features>
+  <cpu mode="host-passthrough"/>
+  <devices>
+    <!-- OS disk (blank, Ironic writes Flatcar here) -->
+    <disk type="file" device="disk">
+      <driver name="qemu" type="qcow2"/>
+      <source file="NEO_DATADIR/neo-worker-cpu.qcow2"/>
+      <target dev="vda" bus="virtio"/>
+    </disk>
+    <!-- NIC 1: provisioning network (PXE boot) -->
+    <interface type="network">
+      <source network="neo-provisioning"/>
+      <mac address="52:54:00:aa:bb:01"/>
+      <model type="virtio"/>
+    </interface>
+    <!-- NIC 2: baremetal network -->
+    <interface type="network">
+      <source network="neo-baremetal"/>
+      <model type="virtio"/>
+    </interface>
+    <serial type="pty">
+      <target port="0"/>
+    </serial>
+    <console type="pty">
+      <target type="serial" port="0"/>
+    </console>
+    <graphics type="vnc" port="-1" autoport="yes"/>
+  </devices>
+</domain>

@@ -1,0 +1,30 @@
+# BareMetalHost for dev CPU worker — points to sushy-tools Redfish
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: worker-cpu-bmc-credentials
+  namespace: metal3
+type: Opaque
+stringData:
+  username: admin
+  password: password
+---
+apiVersion: metal3.io/v1alpha1
+kind: BareMetalHost
+metadata:
+  name: worker-cpu
+  namespace: metal3
+  labels:
+    role: workload
+    feature: cpu
+spec:
+  bootMACAddress: "52:54:00:aa:bb:01"
+  bmc:
+    # sushy-tools Redfish endpoint (runs on host provisioning bridge IP)
+    address: "redfish+http://172.16.20.1:8000/redfish/v1/Systems/neo-worker-cpu"
+    credentialsName: worker-cpu-bmc-credentials
+  rootDeviceHints:
+    deviceName: /dev/vda
+  online: true
+  automatedCleaningMode: disabled

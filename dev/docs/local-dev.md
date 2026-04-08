@@ -8,7 +8,7 @@ Quick start guide for running the full NeoCloud stack locally.
 go            # 1.22+
 node / npm    # 20+
 docker        # with Docker Compose v2
-kind          # https://kind.sigs.k8s.io/
+lima          # brew install lima
 kubectl       # v1.30+
 ```
 
@@ -17,7 +17,7 @@ System: 16 GB+ RAM, 8+ CPU cores recommended.
 ## Quick Start
 
 ```bash
-# 1. Bring up all dependencies (Kind + KubeVirt + Zitadel)
+# 1. Bring up all dependencies (Lima workload cluster + Zitadel)
 make dev-up
 
 # 2. Start the console dev server (separate terminal)
@@ -50,8 +50,8 @@ Platform runs at `https://localhost:9443`. Console at `https://localhost:9443/co
               ┌────────────────┘              └──────────────┐
               ▼                                              ▼
   ┌───────────────────────┐                  ┌──────────────────────┐
-  │  Zitadel (Compose)    │                  │  Kind Cluster        │
-  │  :8080                │                  │  (neocloud-workload) │
+  │  Zitadel (Compose)    │                  │  Lima VM (x86_64)    │
+  │  :10443               │                  │  ├── k3s             │
   │  ├── Traefik proxy    │                  │  ├── KubeVirt        │
   │  ├── Zitadel API      │                  │  └── Tenant VMs     │
   │  ├── Zitadel Login    │                  └──────────────────────┘
@@ -59,55 +59,45 @@ Platform runs at `https://localhost:9443`. Console at `https://localhost:9443/co
   └───────────────────────┘
 ```
 
-## Individual Phases
+## Layer Boundaries
 
-Each phase can be set up independently. See:
-
-- [Phase 1: Kind + KubeVirt](phase-1-kind-kubevirt.md) — Workload cluster setup
-- [Phase 2: Zitadel](phase-2-zitadel.md) — Identity / OIDC provider
-- [Phase 3: Platform Server](phase-3-platform.md) — Core platform binary
-- [Phase 4: Console & CLI](phase-4-console-cli.md) — Web console and CLI tools
-
-## Tear Down
-
-```bash
-# Everything
-make dev-down
-
-# Or individually:
-make zitadel-down
-make kind-down
+```
+Layer 2+ (runs on macOS/Linux)
+   Platform, kcp, Zitadel, console, operators
+────────────── kubeconfig ──────────────────
+Layer 1 (Linux only, or Lima for dev)
+   Bare metal → Kubernetes + KubeVirt
 ```
 
-## Full Reset
+For macOS dev, Lima replaces Layer 1 entirely — same output (kubeconfig), simpler setup.
 
-```bash
-make dev-down
-rm -rf .platform-data
-make dev-up
-```
-
-## Make Targets Reference
+## Make Targets
 
 ### Dev Environment
 
 | Target | Description |
 |--------|-------------|
-| `make dev-up` | Bring up all deps (Kind + KubeVirt + Zitadel) |
+| `make dev-up` | Bring up all deps (Lima + Zitadel) |
 | `make dev-down` | Tear down all deps |
 | `make run-dev` | Build + start platform server |
 | `make dev-login` | Login to local platform via OIDC |
 | `make console-dev` | Start console dev server with hot reload |
 
-### Infrastructure (individual)
+### Workload Cluster (Lima)
 
 | Target | Description |
 |--------|-------------|
-| `make kind-up` | Create Kind workload cluster |
-| `make kind-down` | Delete Kind workload cluster |
-| `make kind-kubevirt` | Create Kind cluster + install KubeVirt |
-| `make zitadel-up` | Start Zitadel via Docker Compose |
-| `make zitadel-down` | Stop Zitadel |
+| `make lima-up` | Create Lima VM with k3s + KubeVirt |
+| `make lima-down` | Delete Lima VM |
+| `make lima-status` | Show Lima VM status |
+| `make lima-kubeconfig` | Extract kubeconfig |
+
+### Layer 2 (Zitadel)
+
+| Target | Description |
+|--------|-------------|
+| `make layer2-dev-up` | Start Zitadel via Docker Compose |
+| `make layer2-dev-down` | Stop Zitadel |
 
 ### Build
 
@@ -117,17 +107,24 @@ make dev-up
 | `make build-platform` | Build platform server binary |
 | `make build-cli` | Build CLI binary |
 | `make build-console` | Build console for production |
+| `make docker-platform` | Build platform Docker image |
+| `make docker-console` | Build console Docker image |
 
-### Overridable Variables
+## Tear Down
 
 ```bash
-make run-dev \
-  OIDC_ISSUER_URL=http://localhost:8080 \
-  OIDC_CLIENT_ID=366808256712106243 \
-  CONSOLE_ADDR=localhost:1234 \
-  WORKLOAD_KUBECONFIG=.platform-data/workload-kubeconfig
+# Everything
+make dev-down
 
-make kind-kubevirt \
-  KIND_CLUSTER_NAME=neocloud-workload \
-  KUBEVIRT_VERSION=v1.4.0
+# Or individually:
+make layer2-dev-down    # Zitadel
+make lima-down          # Lima VM
+```
+
+## Full Reset
+
+```bash
+make dev-down
+rm -rf .platform-data
+make dev-up
 ```
