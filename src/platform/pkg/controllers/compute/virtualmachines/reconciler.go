@@ -58,12 +58,10 @@ var (
 	}
 )
 
-// imageMap maps our platform image names to KubeVirt containerDisk images.
-// Ubuntu images use custom builds with fixed /etc/fstab (nofail on UEFI mount).
-// See project/platform/images/containerdisks/CONTAINERDISKS.md for details.
+// imageMap maps our platform image names to upstream KubeVirt containerDisk images.
 var imageMap = map[string]string{
-	"ubuntu-22.04": "ghcr.io/mjudeikis/containerdisks/ubuntu:22.04",
-	"ubuntu-24.04": "ghcr.io/mjudeikis/containerdisks/ubuntu:24.04",
+	"ubuntu-22.04": "quay.io/containerdisks/ubuntu:22.04",
+	"ubuntu-24.04": "quay.io/containerdisks/ubuntu:24.04",
 	"debian-12":    "quay.io/containerdisks/debian:12",
 	"debian-13":    "quay.io/containerdisks/debian:13",
 }
@@ -694,7 +692,7 @@ func renderCloudInitTemplate(ctx context.Context, c client.Client, tmplStr, host
 func buildKubeVirtVM(name string, vm *computev1alpha1.VirtualMachine, userData string) *unstructured.Unstructured {
 	containerDiskImage := imageMap[vm.Spec.Disk.Image]
 	if containerDiskImage == "" {
-		containerDiskImage = "ghcr.io/mjudeikis/containerdisks/ubuntu:22.04"
+		containerDiskImage = "quay.io/containerdisks/ubuntu:22.04"
 	}
 
 	// Build volumes list.

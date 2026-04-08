@@ -1,4 +1,4 @@
-.PHONY: build build-platform build-cli build-console clean generate lint test tidy codegen crds tools verify-codegen docker-console run-console console-dev zitadel-up zitadel-down run-dev dev-login lima-up lima-down lima-kubeconfig lima-ssh lima-status demo-vm demo-vm-clean dev-up dev-down
+.PHONY: build build-platform build-cli build-console clean generate lint test tidy codegen crds tools verify-codegen docker-platform docker-console run-console console-dev zitadel-up zitadel-down run-dev dev-login lima-up lima-down lima-kubeconfig lima-ssh lima-status demo-vm demo-vm-clean dev-up dev-down
 
 PLATFORM_DIR := src/platform
 CONSOLE_DIR := src/console
@@ -33,6 +33,9 @@ build-console: ## Build the Piral console app shell
 
 console-dev: ## Run console in dev mode (hot reload on :1234)
 	cd $(CONSOLE_DIR) && npm install --workspaces && cd app-shell && npm run start
+
+docker-platform: ## Build platform Docker image
+	cd $(PLATFORM_DIR) && docker build -t platform:latest .
 
 docker-console: ## Build console Docker image
 	cd $(CONSOLE_DIR) && docker build -t platform-console:latest .
