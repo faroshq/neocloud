@@ -34,7 +34,9 @@ DEV_CONSOLE_DOMAIN="console.${DEV_DOMAIN}"
 
 # In-cluster service DNS names — used by KCP and Zitadel to reach each other
 # without depending on external DNS resolution.
-DEV_KCP_INTERNAL="frontproxy-front-proxy.kcp-system.svc.cluster.local"
+# The front-proxy is the client-facing entry point; the root shard is the actual API server.
+DEV_KCP_FRONTPROXY="frontproxy-front-proxy.kcp-system.svc.cluster.local"
+DEV_KCP_SHARD="root-kcp.kcp-system.svc.cluster.local"
 DEV_AUTH_INTERNAL="https://zitadel.zitadel.svc.cluster.local:8443"
 
 # Dev passwords (deterministic for easy re-use)
@@ -308,10 +310,13 @@ ETCD_EOF
 kubectl -n kcp-system rollout status statefulset/kcp-etcd --timeout=120s
 
 # Apply KCP installation with dev overrides via sed
-# OIDC issuerURL must use in-cluster Zitadel URL (external domain doesn't resolve in-cluster)
+# RootShard external/shardBaseURL → root shard's in-cluster service
+# FrontProxy external → front-proxy's in-cluster service
+# OIDC issuerURL → in-cluster Zitadel URL with TLS
 # Also uncomment caFileRef so KCP trusts the self-signed Zitadel CA
 sed \
-  -e "s|kcp.demo.example.com|${DEV_KCP_INTERNAL}|g" \
+  -e "s|shard.demo.example.com|${DEV_KCP_SHARD}|g" \
+  -e "s|kcp.demo.example.com|${DEV_KCP_FRONTPROXY}|g" \
   -e "s|https://auth.demo.example.com|${DEV_AUTH_INTERNAL}|g" \
   -e 's|      # caFileRef:|      caFileRef:|g' \
   -e 's|      #   name: zitadel-ca-bundle|        name: zitadel-ca-bundle|g' \

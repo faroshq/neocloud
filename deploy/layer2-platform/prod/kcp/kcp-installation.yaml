@@ -101,9 +101,9 @@ spec:
   # ---------------------------------------------------------------------------
   external:
     # hostname: The DNS name that clients and other shards use to reach this
-    # shard. Must resolve to the front-proxy or a load balancer in front of it.
-    # TODO: Replace with your KCP API domain.
-    hostname: kcp.demo.example.com
+    # shard. Must resolve to the shard's Service or a load balancer in front of it.
+    # TODO: Replace with your shard's reachable hostname.
+    hostname: shard.demo.example.com
     # port: The TLS port for the KCP API server on this shard.
     port: 6443
 
@@ -112,7 +112,7 @@ spec:
   # For single-shard deployments, this can be the in-cluster Service URL.
   # ---------------------------------------------------------------------------
   # TODO: Replace with your shard's reachable URL.
-  shardBaseURL: https://kcp.demo.example.com:6443
+  shardBaseURL: https://shard.demo.example.com:6443
 
   # ---------------------------------------------------------------------------
   # TLS certificates
