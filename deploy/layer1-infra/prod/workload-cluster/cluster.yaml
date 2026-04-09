@@ -46,6 +46,7 @@ metadata:
 spec:
   # Virtual IP for the workload cluster API server, managed by
   # keepalived or kube-vip.
+  # TODO: Replace with your workload cluster VIP.
   controlPlaneEndpoint:
     host: "172.16.30.20"
     port: 6443
@@ -67,7 +68,7 @@ spec:
   # Single replica to start; scale to 3 for production HA.
   replicas: 1
 
-  version: v1.30.4
+  version: v1.35.3
 
   machineTemplate:
     infrastructureRef:
@@ -76,28 +77,54 @@ spec:
       name: workload-cluster-control-plane
 
   kubeadmConfigSpec:
-    # Commands executed before kubeadm init/join on each node.
+    users:
+      - name: neo
+        sudo: ALL=(ALL) NOPASSWD:ALL
+        # TODO: Replace with a strong password hash (openssl passwd -6)
+        passwd: "$6$neo$4g3zp5Aa8lEJGv3Mv1WRZmweP1eWZSPhITrr38FZc19UKn3l9alJ3eGLGxwdroMGBL/ZW17aZGJhFN.fAh52l1"
+        lockPassword: false
+        shell: /bin/bash
+
     preKubeadmCommands:
-      - hostnamectl set-hostname "{{ ds.meta_data.hostname }}"
-      - echo "{{ ds.meta_data.hostname }}" > /etc/hostname
-      - echo "127.0.1.1 {{ ds.meta_data.hostname }}" >> /etc/hosts
-      - modprobe br_netfilter
-      - modprobe overlay
+      - echo 'neo:neo' | chpasswd
+      # Load required kernel modules for networking
+      - modprobe br_netfilter && modprobe overlay
       - sysctl -w net.bridge.bridge-nf-call-iptables=1
       - sysctl -w net.ipv4.ip_forward=1
+      # Install containerd (not included in Ubuntu cloud image)
+      - apt-get update && apt-get install -y apt-transport-https ca-certificates curl containerd
+      - mkdir -p /etc/containerd
+      - containerd config default | sed 's/SystemdCgroup = false/SystemdCgroup = true/' > /etc/containerd/config.toml
+      - systemctl restart containerd && systemctl enable containerd
+      - "echo 'runtime-endpoint: unix:///run/containerd/containerd.sock' > /etc/crictl.yaml"
+      # Install kubeadm, kubelet, kubectl
+      - curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      - echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /" > /etc/apt/sources.list.d/kubernetes.list
+      - apt-get update && apt-get install -y kubelet kubeadm kubectl jq && apt-mark hold kubelet kubeadm kubectl
+
+    postKubeadmCommands:
+      # Label node with BMH UUID from ConfigDrive metadata so CAPM3 can match it
+      - |
+        METAL3_UUID=$(jq -r '.ds.meta_data.uuid // empty' /run/cloud-init/instance-data.json 2>/dev/null || true)
+        if [ -n "${METAL3_UUID}" ]; then
+          kubectl --kubeconfig /etc/kubernetes/admin.conf label node $(hostname) metal3.io/uuid=${METAL3_UUID} --overwrite || true
+        fi
 
     initConfiguration:
+      localAPIEndpoint:
+        # TODO: Replace with workload cluster VIP (must match controlPlaneEndpoint above)
+        advertiseAddress: "172.16.30.20"
+        bindPort: 6443
       nodeRegistration:
         kubeletExtraArgs:
           cloud-provider: ""
-        name: "{{ ds.meta_data.hostname }}"
 
     joinConfiguration:
       nodeRegistration:
         kubeletExtraArgs:
           cloud-provider: ""
-        name: "{{ ds.meta_data.hostname }}"
 
+    # Harden the cluster with audit logging.
     clusterConfiguration:
       apiServer:
         extraArgs:
@@ -131,10 +158,8 @@ spec:
 
       image:
         # Ubuntu Server cloud image served by the Ironic image server.
+        # TODO: Update URL to match your Ironic httpd image path.
         url: "http://172.16.20.10:6180/images/ubuntu-24.04-server-cloudimg-amd64.img"
-        checksum: "http://172.16.20.10:6180/images/ubuntu-24.04-server-cloudimg-amd64.img.md5sum"
-        checksumType: md5
-        format: raw
-
-      dataTemplate:
-        name: workload-cluster-control-plane-metadata
+        checksum: "http://172.16.20.10:6180/images/ubuntu-24.04-server-cloudimg-amd64.img.sha512sum"
+        checksumType: sha512
+        format: qcow2
