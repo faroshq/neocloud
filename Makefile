@@ -1,4 +1,4 @@
-.PHONY: build build-platform build-cli build-console clean generate lint test tidy codegen crds tools verify-codegen docker-platform docker-console run-console console-dev layer1-dev-up layer1-dev-down layer1-dev-status layer1-dev-kubeconfig lima-up lima-down lima-status lima-kubeconfig layer2-dev-up layer2-dev-down layer3-dev-up layer3-dev-down run-dev dev-login dev-up dev-down demo-vm demo-vm-clean zitadel-up zitadel-down
+.PHONY: build build-platform build-cli build-console clean generate lint test tidy codegen crds tools verify-codegen docker-platform docker-console run-console console-dev layer1-dev-up layer1-dev-down layer1-dev-status layer1-dev-kubeconfig lima-up lima-down lima-status lima-kubeconfig layer2-dev-up layer2-dev-down layer3-dev-up layer3-dev-down dev-lima-up dev-lima-down dev-lima-run dev-lima-login dev-integration-up dev-integration-down demo-vm demo-vm-clean zitadel-up zitadel-down
 
 PLATFORM_DIR := src/platform
 CONSOLE_DIR := src/console
@@ -100,6 +100,7 @@ ZITADEL_COMPOSE_DIR := deploy/layer2-platform/dev/zitadel-compose
 LIMA_CONFIG := deploy/layer2-platform/dev/lima/kubevirt-dev.yaml
 LIMA_VM_NAME := kubevirt-dev
 LAYER1_SCRIPTS := deploy/layer1-infra/dev/scripts
+LAYER2_INTEGRATION_SCRIPTS := deploy/layer2-platform/dev/integration
 WORKLOAD_KUBECONFIG ?= .platform-data/workload-kubeconfig
 
 OIDC_ISSUER_URL ?= https://localhost:10443
@@ -172,9 +173,17 @@ layer3-dev-up: ## Stub — no dev dependencies for layer 3 yet
 layer3-dev-down: ## Stub
 	@echo "Layer 3 dev: nothing to tear down"
 
-# --- Run ---
+# ===========================================================================
+# Dev Lima: Local dev with Lima VM + embedded kcp + Zitadel docker-compose
+# Fast iteration cycle for code changes. macOS or Linux.
+# ===========================================================================
 
-run-dev: build-platform layer2-dev-up ## Run platform with embedded kcp, console proxy, Zitadel OIDC, and workload cluster
+dev-lima-up: lima-up layer2-dev-up ## [Lima] Bring up Lima VM + Zitadel (full local dev env)
+	@echo "Dev environment ready. Run 'make dev-lima-run' to start the platform."
+
+dev-lima-down: layer2-dev-down lima-down ## [Lima] Tear down Lima VM + Zitadel
+
+dev-lima-run: build-platform layer2-dev-up ## [Lima] Run platform with embedded kcp + Zitadel OIDC
 	./$(BINARY_DIR)/platform start \
 		--embedded-kcp \
 		--dev-mode \
@@ -184,10 +193,26 @@ run-dev: build-platform layer2-dev-up ## Run platform with embedded kcp, console
 		$(if $(OIDC_CLIENT_ID),--oidc-client-id $(OIDC_CLIENT_ID),) \
 		$(if $(wildcard $(WORKLOAD_KUBECONFIG)),--workload-kubeconfig $(WORKLOAD_KUBECONFIG),)
 
-dev-login: build-cli ## Login to local dev platform via OIDC
+dev-lima-login: build-cli ## [Lima] Login to local dev platform via OIDC
 	./$(BINARY_DIR)/platform-cli login \
 		--hub-url https://localhost:9443 \
 		--insecure-skip-tls-verify
+
+# ===========================================================================
+# Dev Integration: Layer1 libvirt cluster + prod-like Layer2 deployment
+# Deploys kcp, Zitadel, operators on the cluster — close to production.
+# Requires: make layer1-dev-up first (Linux only).
+# ===========================================================================
+
+dev-integration-up: ## [Integration] Deploy Layer2 prod manifests onto Layer1 cluster
+	$(LAYER2_INTEGRATION_SCRIPTS)/up.sh
+
+dev-integration-down: ## [Integration] Remove Layer2 from Layer1 cluster
+	$(LAYER2_INTEGRATION_SCRIPTS)/down.sh
+
+# ===========================================================================
+# Shared utilities
+# ===========================================================================
 
 demo-vm: ## Create a demo VM on the workload cluster
 	KUBECONFIG=$(WORKLOAD_KUBECONFIG) kubectl apply -f deploy/layer1-infra/prod/kubevirt/demo-vm.yaml
@@ -200,13 +225,6 @@ demo-vm: ## Create a demo VM on the workload cluster
 
 demo-vm-clean: ## Delete the demo VM
 	KUBECONFIG=$(WORKLOAD_KUBECONFIG) kubectl delete -f deploy/layer1-infra/prod/kubevirt/demo-vm.yaml --ignore-not-found
-
-# --- Full dev environment lifecycle ---
-
-dev-up: lima-up layer2-dev-up ## Bring up all dev dependencies (Lima + Zitadel)
-	@echo "Dev environment ready. Run 'make run-dev' to start the platform."
-
-dev-down: layer2-dev-down lima-down ## Tear down all dev dependencies
 
 # --- Backward compatibility aliases ---
 
