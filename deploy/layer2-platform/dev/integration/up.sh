@@ -205,6 +205,11 @@ spec:
           volumeMounts:
             - name: etcd-data
               mountPath: /var/lib/etcd
+          env:
+            - name: ETCDCTL_API
+              value: "3"
+            - name: ETCDCTL_ENDPOINTS
+              value: "http://127.0.0.1:2379"
           livenessProbe:
             exec:
               command: ["/bin/sh", "-c", "etcdctl endpoint health"]
