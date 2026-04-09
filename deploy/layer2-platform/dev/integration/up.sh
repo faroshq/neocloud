@@ -34,7 +34,7 @@ DEV_CONSOLE_DOMAIN="console.${DEV_DOMAIN}"
 
 # Dev passwords (deterministic for easy re-use)
 DEV_POSTGRES_PASSWORD="${DEV_POSTGRES_PASSWORD:-dev-zitadel-password}"
-DEV_ZITADEL_MASTERKEY="${DEV_ZITADEL_MASTERKEY:-$(openssl rand -base64 32 2>/dev/null || echo 'dev-masterkey-not-for-production!!')}"
+DEV_ZITADEL_MASTERKEY="${DEV_ZITADEL_MASTERKEY:-$(openssl rand -hex 16 2>/dev/null || echo 'dev-masterkey-32bytes-exactly!!')}"
 
 # Colors
 RED='\033[0;31m'

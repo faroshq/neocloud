@@ -353,6 +353,12 @@ for i in $(seq 1 60); do
   sleep 10
 done
 
+# --- Step 10: Install local-path-provisioner for storage ---
+info "Installing local-path-provisioner on workload cluster..."
+KUBECONFIG="${WORKLOAD_KUBECONFIG}" kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.30/deploy/local-path-storage.yaml
+# Set as default StorageClass
+KUBECONFIG="${WORKLOAD_KUBECONFIG}" kubectl patch storageclass local-path -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' || true
+
 info ""
 info "Layer 1 dev environment is ready!"
 info "Workload cluster kubeconfig: ${WORKLOAD_KUBECONFIG}"
