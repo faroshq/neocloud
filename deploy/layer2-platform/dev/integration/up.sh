@@ -151,12 +151,12 @@ sed \
 
 info "Waiting for KCP RootShard to become ready..."
 for i in $(seq 1 60); do
-  if kubectl get rootshard root -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null | grep -q True; then
+  if kubectl get rootshard root -n kcp-system -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null | grep -q True; then
     info "KCP RootShard is ready."
     break
   fi
   if [ "$i" -eq 60 ]; then
-    warn "Timed out waiting for KCP RootShard. Check: kubectl get rootshard root -o yaml"
+    warn "Timed out waiting for KCP RootShard. Check: kubectl get rootshard root -n kcp-system -o yaml"
   fi
   sleep 10
 done
@@ -168,7 +168,7 @@ info "Step 5/6: Setting up platform workspace and APIs..."
 # Extract KCP admin kubeconfig
 KCP_KUBECONFIG=""
 for i in $(seq 1 30); do
-  if kubectl get secret kcp-admin-kubeconfig -o jsonpath='{.data.kubeconfig}' 2>/dev/null | base64 -d > /tmp/kcp-admin.kubeconfig 2>/dev/null; then
+  if kubectl -n kcp-system get secret kcp-admin-kubeconfig -o jsonpath='{.data.kubeconfig}' 2>/dev/null | base64 -d > /tmp/kcp-admin.kubeconfig 2>/dev/null; then
     if [ -s /tmp/kcp-admin.kubeconfig ]; then
       KCP_KUBECONFIG="/tmp/kcp-admin.kubeconfig"
       break
