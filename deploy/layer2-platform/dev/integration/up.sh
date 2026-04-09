@@ -202,7 +202,7 @@ helm upgrade --install zitadel zitadel/zitadel \
   --set zitadel.secretConfig.Database.Postgres.Admin.Password="${DEV_POSTGRES_PASSWORD}" \
   --set service.port=8443 \
   --set "login.env[0].name=NODE_TLS_REJECT_UNAUTHORIZED" \
-  --set "login.env[0].value=0" \
+  --set-string "login.env[0].value=0" \
   --wait --timeout 300s
 
 info "Zitadel deployed with TLS at ${DEV_AUTH_INTERNAL}"
