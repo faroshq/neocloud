@@ -149,36 +149,23 @@ func (r *Reconciler) Reconcile(ctx context.Context, req mcreconcile.Request) (ct
 	}
 }
 
-// handleFailed attempts to recover a failed VM by cleaning up stale resources and resetting to Pending.
+// handleFailed is a terminal state — the VM stays Failed until the user deletes and recreates it.
+// We only clean up the KubeVirt VM on the workload cluster to release resources.
 func (r *Reconciler) handleFailed(ctx context.Context, c client.Client, vm *computev1alpha1.VirtualMachine, logger klog.Logger) (ctrl.Result, error) {
 	kvName := kubevirtVMName(vm)
-	logger.Info("VM in Failed state, attempting recovery", "kubevirtName", kvName)
+	logger.Info("VM in Failed state", "kubevirtName", kvName, "message", vm.Status.Message)
 
-	// Clean up any stale KubeVirt VM on the workload cluster.
+	// Clean up any KubeVirt VM on the workload cluster to release resources.
 	if r.workloadClient != nil {
-		err := r.workloadClient.Resource(kubevirtVMGVR).Namespace(defaultNamespace).Delete(ctx, kvName, metav1.DeleteOptions{})
-		if err != nil {
-			logger.Info("Stale KubeVirt VM cleanup (may already be gone)", "error", err)
+		_, err := r.workloadClient.Resource(kubevirtVMGVR).Namespace(defaultNamespace).Get(ctx, kvName, metav1.GetOptions{})
+		if err == nil {
+			logger.Info("Cleaning up KubeVirt VM for failed platform VM", "kubevirtName", kvName)
+			_ = r.workloadClient.Resource(kubevirtVMGVR).Namespace(defaultNamespace).Delete(ctx, kvName, metav1.DeleteOptions{})
 		}
 	}
 
-	// Reset to Pending so handlePending will recreate the VM.
-	vm.Status.Phase = computev1alpha1.VirtualMachinePending
-	vm.Status.Message = "Recovering from failure, will recreate"
-	vm.Status.InternalIP = ""
-	setCondition(&vm.Status.Conditions, metav1.Condition{
-		Type:               commonv1alpha1.ConditionProgessing,
-		Status:             metav1.ConditionTrue,
-		Reason:             "Recovering",
-		Message:            "Resetting VM to Pending after failure",
-		LastTransitionTime: metav1.Now(),
-	})
-
-	if err := c.Status().Update(ctx, vm); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	// Terminal state — no requeue.
+	return ctrl.Result{}, nil
 }
 
 // handleDeletion cleans up the KubeVirt VM on the workload cluster and removes the finalizer.
@@ -342,7 +329,7 @@ func (r *Reconciler) handleProvisioning(ctx context.Context, c client.Client, vm
 
 	if r.workloadClient != nil {
 		// Check if the KubeVirt VM itself still exists on the workload cluster.
-		_, err := r.workloadClient.Resource(kubevirtVMGVR).Namespace(defaultNamespace).Get(ctx, kvName, metav1.GetOptions{})
+		kvVM, err := r.workloadClient.Resource(kubevirtVMGVR).Namespace(defaultNamespace).Get(ctx, kvName, metav1.GetOptions{})
 		if apierrors.IsNotFound(err) {
 			logger.Info("KubeVirt VM disappeared during provisioning, marking as Failed", "kubevirtName", kvName)
 			vm.Status.Phase = computev1alpha1.VirtualMachineFailed
@@ -363,17 +350,72 @@ func (r *Reconciler) handleProvisioning(ctx context.Context, c client.Client, vm
 			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 		}
 
-		// Check VMI status on the workload cluster.
-		vmi, err := r.workloadClient.Resource(kubevirtVMIGVR).Namespace(defaultNamespace).Get(ctx, kvName, metav1.GetOptions{})
-		if err != nil {
-			logger.Info("VMI not ready yet, requeueing", "error", err)
-			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		// Check KubeVirt VM printableStatus — this is the authoritative status signal.
+		kvPrintableStatus, _, _ := unstructured.NestedString(kvVM.Object, "status", "printableStatus")
+		kvReady, _, _ := unstructured.NestedBool(kvVM.Object, "status", "ready")
+
+		if strings.HasPrefix(kvPrintableStatus, "Error") {
+			errorMessage := kvErrorMessage(kvVM)
+
+			// Classify error: retryable errors stay in Provisioning (KubeVirt keeps retrying),
+			// terminal errors transition to Failed.
+			if isRetryableKubeVirtError(kvPrintableStatus) {
+				logger.Info("KubeVirt VM has retryable error, keeping Provisioning", "printableStatus", kvPrintableStatus)
+				msg := fmt.Sprintf("KubeVirt: %s", errorMessage)
+				if vm.Status.Message != msg {
+					vm.Status.Message = msg
+					_ = c.Status().Update(ctx, vm)
+				}
+				return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+			}
+
+			// Terminal error — mark as Failed.
+			logger.Info("KubeVirt VM has terminal error", "printableStatus", kvPrintableStatus, "message", errorMessage)
+			vm.Status.Phase = computev1alpha1.VirtualMachineFailed
+			vm.Status.Message = fmt.Sprintf("KubeVirt error: %s", errorMessage)
+			setCondition(&vm.Status.Conditions, metav1.Condition{
+				Type:               commonv1alpha1.ConditionProgessing,
+				Status:             metav1.ConditionFalse,
+				Reason:             "KubeVirtError",
+				Message:            errorMessage,
+				LastTransitionTime: metav1.Now(),
+			})
+			if err := c.Status().Update(ctx, vm); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
 		}
 
-		// Check if VMI phase is Running.
-		phase, _, _ := unstructured.NestedString(vmi.Object, "status", "phase")
-		if phase != "Running" {
-			logger.Info("VMI not running yet", "phase", phase)
+		// Propagate KubeVirt status for visibility even when not in error.
+		if kvPrintableStatus != "" {
+			msg := fmt.Sprintf("KubeVirt: %s", kvPrintableStatus)
+			if vm.Status.Message != msg {
+				vm.Status.Message = msg
+				_ = c.Status().Update(ctx, vm)
+			}
+		}
+
+		// If KubeVirt VM is not ready yet, check VMI status.
+		if !kvReady {
+			// Check VMI status on the workload cluster.
+			vmi, err := r.workloadClient.Resource(kubevirtVMIGVR).Namespace(defaultNamespace).Get(ctx, kvName, metav1.GetOptions{})
+			if err != nil {
+				logger.Info("VMI not ready yet, requeueing", "error", err)
+				return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+			}
+
+			// Check if VMI phase is Running.
+			phase, _, _ := unstructured.NestedString(vmi.Object, "status", "phase")
+			if phase != "Running" {
+				logger.Info("VMI not running yet", "phase", phase)
+				return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+			}
+		}
+
+		// VM is ready or VMI is running — extract IP from VMI.
+		vmi, err := r.workloadClient.Resource(kubevirtVMIGVR).Namespace(defaultNamespace).Get(ctx, kvName, metav1.GetOptions{})
+		if err != nil {
+			logger.Info("VMI not found despite VM being ready, requeueing", "error", err)
 			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 		}
 
@@ -434,6 +476,57 @@ func (r *Reconciler) handleRunning(ctx context.Context, c client.Client, vm *com
 	}
 
 	kvName := kubevirtVMName(vm)
+
+	// Check KubeVirt VM status for errors (e.g. crash, eviction).
+	kvVM, err := r.workloadClient.Resource(kubevirtVMGVR).Namespace(defaultNamespace).Get(ctx, kvName, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		logger.Info("KubeVirt VM disappeared, marking as Failed", "kubevirtName", kvName)
+		vm.Status.Phase = computev1alpha1.VirtualMachineFailed
+		vm.Status.Message = "VirtualMachine disappeared"
+		setCondition(&vm.Status.Conditions, metav1.Condition{
+			Type:               commonv1alpha1.ConditionAvailable,
+			Status:             metav1.ConditionFalse,
+			Reason:             "VMDisappeared",
+			Message:            "VirtualMachine no longer exists on workload cluster",
+			LastTransitionTime: metav1.Now(),
+		})
+		_ = c.Status().Update(ctx, vm)
+		return ctrl.Result{}, nil
+	} else if err != nil {
+		logger.Info("Failed to check KubeVirt VM, requeueing", "error", err)
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	// Check for KubeVirt error states via printableStatus.
+	kvPrintableStatus, _, _ := unstructured.NestedString(kvVM.Object, "status", "printableStatus")
+	if strings.HasPrefix(kvPrintableStatus, "Error") {
+		errorMessage := kvErrorMessage(kvVM)
+
+		if isRetryableKubeVirtError(kvPrintableStatus) {
+			logger.Info("KubeVirt VM has retryable error while running", "printableStatus", kvPrintableStatus)
+			msg := fmt.Sprintf("KubeVirt: %s", errorMessage)
+			if vm.Status.Message != msg {
+				vm.Status.Message = msg
+				_ = c.Status().Update(ctx, vm)
+			}
+			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+		}
+
+		logger.Info("KubeVirt VM has terminal error while running", "printableStatus", kvPrintableStatus, "message", errorMessage)
+		vm.Status.Phase = computev1alpha1.VirtualMachineFailed
+		vm.Status.Message = fmt.Sprintf("KubeVirt error: %s", errorMessage)
+		setCondition(&vm.Status.Conditions, metav1.Condition{
+			Type:               commonv1alpha1.ConditionAvailable,
+			Status:             metav1.ConditionFalse,
+			Reason:             "KubeVirtError",
+			Message:            errorMessage,
+			LastTransitionTime: metav1.Now(),
+		})
+		_ = c.Status().Update(ctx, vm)
+		return ctrl.Result{}, nil
+	}
+
+	// Check VMI for IP and running status.
 	vmi, err := r.workloadClient.Resource(kubevirtVMIGVR).Namespace(defaultNamespace).Get(ctx, kvName, metav1.GetOptions{})
 	if err != nil {
 		logger.Info("VMI not found for running VM, may have been stopped", "error", err)
@@ -450,20 +543,67 @@ func (r *Reconciler) handleRunning(ctx context.Context, c client.Client, vm *com
 		return ctrl.Result{}, nil
 	}
 
-	// Sync IP from VMI.
+	// Sync IP and status message from VMI.
+	needsUpdate := false
 	interfaces, found, _ := unstructured.NestedSlice(vmi.Object, "status", "interfaces")
 	if found && len(interfaces) > 0 {
 		if iface, ok := interfaces[0].(map[string]interface{}); ok {
 			if ip, ok := iface["ipAddress"].(string); ok {
 				if ip != vm.Status.InternalIP {
 					vm.Status.InternalIP = ip
-					_ = c.Status().Update(ctx, vm)
+					vm.Status.SSHEndpoint = fmt.Sprintf("%s:22", ip)
+					needsUpdate = true
 				}
 			}
 		}
 	}
 
+	// Update message with KubeVirt printable status.
+	if kvPrintableStatus != "" {
+		msg := fmt.Sprintf("KubeVirt: %s", kvPrintableStatus)
+		if vm.Status.Message != msg {
+			vm.Status.Message = msg
+			needsUpdate = true
+		}
+	}
+
+	if needsUpdate {
+		_ = c.Status().Update(ctx, vm)
+	}
+
 	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+}
+
+// isRetryableKubeVirtError returns true for KubeVirt errors that may resolve on their own
+// (e.g. scheduling pressure). Terminal errors (image pull, PVC not found) return false.
+func isRetryableKubeVirtError(printableStatus string) bool {
+	switch printableStatus {
+	case "ErrorUnschedulable":
+		return true // node may get capacity
+	default:
+		return false // ErrImagePull, ErrorPvcNotFound, CrashLoopBackOff, etc.
+	}
+}
+
+// kvErrorMessage extracts the most informative error message from KubeVirt VM conditions.
+func kvErrorMessage(kvVM *unstructured.Unstructured) string {
+	printableStatus, _, _ := unstructured.NestedString(kvVM.Object, "status", "printableStatus")
+	errorMessage := printableStatus
+
+	kvConditions, _, _ := unstructured.NestedSlice(kvVM.Object, "status", "conditions")
+	for _, rawCond := range kvConditions {
+		cond, ok := rawCond.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		condMessage, _ := cond["message"].(string)
+		condReason, _ := cond["reason"].(string)
+		if condReason == "Unschedulable" || cond["type"] == "Failure" {
+			errorMessage = condMessage
+			break
+		}
+	}
+	return errorMessage
 }
 
 // kubevirtVMName generates a deterministic name for the KubeVirt VM from the platform VM.

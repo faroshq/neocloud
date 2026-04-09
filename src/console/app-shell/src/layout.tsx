@@ -17,10 +17,9 @@ import {
   alpha,
 } from '@mui/material';
 import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
-import DnsRoundedIcon from '@mui/icons-material/DnsRounded';
-import HubRoundedIcon from '@mui/icons-material/HubRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import type { LayoutProps } from 'piral-core';
+import type { SvgIconComponent } from './resources';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   getEmail,
@@ -29,6 +28,8 @@ import {
   startLogin,
   handleAuthCallback,
 } from './auth';
+import { discoverApiGroups } from './api';
+import { apiGroups } from './resources';
 
 const DRAWER_WIDTH = 232;
 
@@ -182,28 +183,63 @@ const NeoCloudLogo: React.FC = () => (
   </Box>
 );
 
-const navSections = [
-  {
-    label: 'Overview',
-    items: [{ label: 'Dashboard', path: '/', icon: GridViewRoundedIcon }],
-  },
-  {
-    label: 'Compute',
-    items: [
-      { label: 'Virtual Machines', path: '/vm', icon: DnsRoundedIcon },
-    ],
-  },
-  {
-    label: 'Orchestration',
-    items: [
-      { label: 'Kubernetes Clusters', path: '/kc', icon: HubRoundedIcon },
-    ],
-  },
-];
+interface NavItem {
+  label: string;
+  path: string;
+  icon: SvgIconComponent;
+}
+
+interface NavSection {
+  label: string;
+  items: NavItem[];
+}
+
+/** Build navigation sections from discovered API groups */
+function useNavSections(): NavSection[] {
+  const [availableGroups, setAvailableGroups] = React.useState<Set<string> | null>(null);
+
+  React.useEffect(() => {
+    if (!isAuthenticated()) return;
+    discoverApiGroups()
+      .then((groups) => {
+        const names = new Set(groups.map((g) => g.name));
+        setAvailableGroups(names);
+      })
+      .catch(() => {
+        // Fallback: show all groups if discovery fails
+        setAvailableGroups(null);
+      });
+  }, []);
+
+  const sections: NavSection[] = [
+    {
+      label: 'Overview',
+      items: [{ label: 'Dashboard', path: '/', icon: GridViewRoundedIcon }],
+    },
+  ];
+
+  for (const group of apiGroups) {
+    // If discovery succeeded, only show groups that have APIBindings
+    if (availableGroups !== null && !availableGroups.has(group.group)) {
+      continue;
+    }
+    sections.push({
+      label: group.label,
+      items: group.resources.map((r) => ({
+        label: r.displayNamePlural,
+        path: r.path,
+        icon: r.icon,
+      })),
+    });
+  }
+
+  return sections;
+}
 
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const navSections = useNavSections();
   const [authState, setAuthState] = React.useState<
     'checking' | 'authenticated' | 'unauthenticated'
   >('checking');

@@ -1,13 +1,11 @@
 import * as React from 'react';
 import { Box, Typography, Paper, Button, Skeleton, alpha } from '@mui/material';
-import DnsRoundedIcon from '@mui/icons-material/DnsRounded';
-import HubRoundedIcon from '@mui/icons-material/HubRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
-import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import { useNavigate } from 'react-router-dom';
 import { isAuthenticated, getEmail, startLogin } from './auth';
-import { vmApi, kcApi, type K8sResource } from './api';
+import { resourceApi, type K8sResource } from './api';
+import { apiGroups } from './resources';
 
 interface StatCardProps {
   title: string;
@@ -32,7 +30,8 @@ const StatCard: React.FC<StatCardProps> = ({
     onClick={onClick}
     sx={{
       p: 2.5,
-      flex: '1 1 220px',
+      flex: '1 1 200px',
+      minWidth: 180,
       cursor: 'pointer',
       position: 'relative',
       overflow: 'hidden',
@@ -178,42 +177,27 @@ export const Dashboard: React.FC = () => {
   const email = getEmail();
   const navigate = useNavigate();
 
-  const [vmCount, setVmCount] = React.useState<number | null>(null);
-  const [runningVms, setRunningVms] = React.useState(0);
-  const [kcCount, setKcCount] = React.useState<number | null>(null);
-  const [availableKc, setAvailableKc] = React.useState(0);
+  const [counts, setCounts] = React.useState<Map<string, number>>(new Map());
 
   React.useEffect(() => {
     if (!authenticated) return;
-    vmApi
-      .list()
-      .then((vms: K8sResource[]) => {
-        setVmCount(vms.length);
-        setRunningVms(
-          vms.filter(
-            (v) =>
-              ((v.status || {}) as Record<string, unknown>).phase === 'Running',
-          ).length,
-        );
-      })
-      .catch(() => setVmCount(0));
 
-    kcApi
-      .list()
-      .then((clusters: K8sResource[]) => {
-        setKcCount(clusters.length);
-        setAvailableKc(
-          clusters.filter((c) => {
-            const status = (c.status || {}) as Record<string, unknown>;
-            const conditions =
-              (status.conditions as Array<Record<string, string>>) || [];
-            return conditions.some(
-              (cond) => cond.type === 'Available' && cond.status === 'True',
-            );
-          }).length,
-        );
-      })
-      .catch(() => setKcCount(0));
+    // Fetch counts for each resource independently so the dashboard
+    // populates progressively and doesn't block on missing API groups
+    for (const group of apiGroups) {
+      for (const resource of group.resources) {
+        const key = `${group.group}/${resource.plural}`;
+        resourceApi(group.group, group.version, resource.plural)
+          .list()
+          .then((items: K8sResource[]) => {
+            setCounts((prev) => new Map(prev).set(key, items.length));
+          })
+          .catch(() => {
+            // API group not available — show 0 instead of skeleton
+            setCounts((prev) => new Map(prev).set(key, 0));
+          });
+      }
+    }
   }, [authenticated]);
 
   if (!authenticated) {
@@ -257,6 +241,11 @@ export const Dashboard: React.FC = () => {
         ? 'Good afternoon'
         : 'Good evening';
 
+  function getCount(groupName: string, plural: string): number | null {
+    const key = `${groupName}/${plural}`;
+    return counts.has(key) ? counts.get(key)! : null;
+  }
+
   return (
     <Box>
       <Box sx={{ mb: 4 }}>
@@ -275,56 +264,43 @@ export const Dashboard: React.FC = () => {
         </Typography>
       </Box>
 
-      <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 4 }}>
-        <StatCard
-          title="Virtual Machines"
-          count={vmCount}
-          subtitle={
-            vmCount !== null
-              ? `${runningVms} running`
-              : ''
-          }
-          icon={
-            <DnsRoundedIcon sx={{ fontSize: 18, color: 'white' }} />
-          }
-          gradient="linear-gradient(135deg, #818cf8, #6366f1)"
-          accentColor="#818cf8"
-          onClick={() => navigate('/vm')}
-        />
-        <StatCard
-          title="Kubernetes Clusters"
-          count={kcCount}
-          subtitle={
-            kcCount !== null
-              ? `${availableKc} available`
-              : ''
-          }
-          icon={
-            <HubRoundedIcon sx={{ fontSize: 18, color: 'white' }} />
-          }
-          gradient="linear-gradient(135deg, #22d3ee, #06b6d4)"
-          accentColor="#22d3ee"
-          onClick={() => navigate('/kc')}
-        />
-        <StatCard
-          title="Healthy Resources"
-          count={
-            vmCount !== null && kcCount !== null
-              ? runningVms + availableKc
-              : null
-          }
-          subtitle="across all types"
-          icon={
-            <CheckCircleRoundedIcon
-              sx={{ fontSize: 18, color: 'white' }}
-            />
-          }
-          gradient="linear-gradient(135deg, #34d399, #10b981)"
-          accentColor="#34d399"
-          onClick={() => {}}
-        />
-      </Box>
+      {/* Stat cards grouped by API group */}
+      {apiGroups.map((group) => (
+        <Box key={group.group} sx={{ mb: 4 }}>
+          <Typography
+            sx={{
+              fontSize: '0.6875rem',
+              fontWeight: 700,
+              letterSpacing: '0.1em',
+              textTransform: 'uppercase',
+              color: '#3f3f46',
+              mb: 1.5,
+            }}
+          >
+            {group.label}
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            {group.resources.map((resource) => {
+              const Icon = resource.icon;
+              const count = getCount(group.group, resource.plural);
+              return (
+                <StatCard
+                  key={resource.plural}
+                  title={resource.displayNamePlural}
+                  count={count}
+                  subtitle={count !== null ? 'total' : ''}
+                  icon={<Icon sx={{ fontSize: 18, color: 'white' }} />}
+                  gradient={group.gradient}
+                  accentColor={group.accentColor}
+                  onClick={() => navigate(resource.path)}
+                />
+              );
+            })}
+          </Box>
+        </Box>
+      ))}
 
+      {/* Quick actions */}
       <Typography
         sx={{
           fontSize: '0.8125rem',
@@ -349,18 +325,20 @@ export const Dashboard: React.FC = () => {
           icon={<AddRoundedIcon sx={{ fontSize: 18 }} />}
           onClick={() => navigate('/vm/create')}
         />
-        <QuickAction
-          title="View Virtual Machines"
-          description="Manage existing compute instances"
-          icon={<DnsRoundedIcon sx={{ fontSize: 18 }} />}
-          onClick={() => navigate('/vm')}
-        />
-        <QuickAction
-          title="View Kubernetes Clusters"
-          description="Manage container orchestration"
-          icon={<HubRoundedIcon sx={{ fontSize: 18 }} />}
-          onClick={() => navigate('/kc')}
-        />
+        {apiGroups.map((group) =>
+          group.resources.map((resource) => {
+            const Icon = resource.icon;
+            return (
+              <QuickAction
+                key={resource.plural}
+                title={`View ${resource.displayNamePlural}`}
+                description={`Manage ${resource.displayNamePlural.toLowerCase()}`}
+                icon={<Icon sx={{ fontSize: 18 }} />}
+                onClick={() => navigate(resource.path)}
+              />
+            );
+          }),
+        )}
       </Box>
     </Box>
   );

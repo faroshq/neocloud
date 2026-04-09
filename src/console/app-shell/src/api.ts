@@ -75,19 +75,41 @@ export async function k8sDelete(path: string): Promise<void> {
   }
 }
 
-// Resource-specific helpers
+// ── Generic resource API ─────────────────────────────────────────
+
+export function resourceApi(group: string, version: string, plural: string) {
+  const base = `/apis/${group}/${version}/${plural}`;
+  return {
+    list: () => k8sList(base),
+    get: (name: string) => k8sGet(`${base}/${name}`),
+    create: (resource: unknown) => k8sCreate(base, resource),
+    delete: (name: string) => k8sDelete(`${base}/${name}`),
+  };
+}
+
+// ── API Discovery ────────────────────────────────────────────────
+
+export interface APIGroup {
+  name: string;
+  versions: Array<{ groupVersion: string; version: string }>;
+}
+
+/** Fetch available API groups from the cluster */
+export async function discoverApiGroups(): Promise<APIGroup[]> {
+  const resp = await fetch(`${baseUrl()}/apis`, { headers: headers() });
+  if (!resp.ok) {
+    throw new Error(`API discovery error ${resp.status}: ${resp.statusText}`);
+  }
+  const data = await resp.json();
+  return (data.groups || []) as APIGroup[];
+}
+
+// ── Legacy resource-specific helpers (kept for existing pages) ───
+
 const COMPUTE_API = '/apis/compute.cloud.platform/v1alpha1';
 
-export const vmApi = {
-  list: () => k8sList(`${COMPUTE_API}/virtualmachines`),
-  get: (name: string) => k8sGet(`${COMPUTE_API}/virtualmachines/${name}`),
-  create: (resource: unknown) => k8sCreate(`${COMPUTE_API}/virtualmachines`, resource),
-  delete: (name: string) => k8sDelete(`${COMPUTE_API}/virtualmachines/${name}`),
-};
+export const vmApi = resourceApi('compute.cloud.platform', 'v1alpha1', 'virtualmachines');
 
-export const kcApi = {
-  list: () => k8sList(`${COMPUTE_API}/kubernetesclusters`),
-  get: (name: string) => k8sGet(`${COMPUTE_API}/kubernetesclusters/${name}`),
-  create: (resource: unknown) => k8sCreate(`${COMPUTE_API}/kubernetesclusters`, resource),
-  delete: (name: string) => k8sDelete(`${COMPUTE_API}/kubernetesclusters/${name}`),
-};
+export const kcApi = resourceApi('compute.cloud.platform', 'v1alpha1', 'kubernetesclusters');
+
+export const cloudInitApi = resourceApi('compute.cloud.platform', 'v1alpha1', 'cloudinits');
