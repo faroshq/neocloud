@@ -10,7 +10,7 @@ KUBECONFIG="${REPO_ROOT}/.platform-data/workload-kubeconfig"
 VIRSH="virsh --connect qemu:///system"
 
 echo "=== Libvirt VMs ==="
-for vm in neo-mgmt neo-worker-cpu neo-worker-gpu; do
+for vm in neo-mgmt neo-worker-cpu neo-worker-cpu2 neo-worker-gpu; do
   STATE=$(${VIRSH} domstate "${vm}" 2>/dev/null || echo "not defined")
   echo "  ${vm}: ${STATE}"
 done

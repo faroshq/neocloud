@@ -133,7 +133,7 @@ done
 
 # --- Step 4: Create worker VM disks ---
 info "Creating worker VM disks..."
-for worker in neo-worker-cpu neo-worker-gpu; do
+for worker in neo-worker-cpu neo-worker-cpu2 neo-worker-gpu; do
   WORKER_DISK="${NEO_DATADIR}/${worker}.qcow2"
   if [ ! -f "${WORKER_DISK}" ]; then
     qemu-img create -f qcow2 "${WORKER_DISK}" 20G
@@ -142,7 +142,7 @@ for worker in neo-worker-cpu neo-worker-gpu; do
 done
 
 # Define worker VMs (but don't start — Metal3 will power them on)
-for worker in worker-cpu worker-gpu; do
+for worker in worker-cpu worker-cpu2 worker-gpu; do
   if ${VIRSH} dominfo "neo-${worker}" &>/dev/null; then
     info "  VM 'neo-${worker}' already defined."
   else
@@ -260,10 +260,11 @@ if [ "${SKIP_PROVISIONING:-}" != "true" ]; then
   kubectl create namespace metal3 --dry-run=client -o yaml | kubectl apply -f -
   info "Registering BareMetalHosts..."
   kubectl apply -f "${DEV_DIR}/metal3/baremetalhost-cpu.yaml"
+  kubectl apply -f "${DEV_DIR}/metal3/baremetalhost-cpu2.yaml"
   kubectl apply -f "${DEV_DIR}/metal3/baremetalhost-gpu.yaml"
 
   info "Waiting for BareMetalHosts to be inspected..."
-  for bmh in worker-cpu worker-gpu; do
+  for bmh in worker-cpu worker-cpu2 worker-gpu; do
     for i in $(seq 1 60); do
       STATE=$(kubectl -n metal3 get bmh "${bmh}" -o jsonpath='{.status.provisioning.state}' 2>/dev/null || echo "unknown")
       ERROR=$(kubectl -n metal3 get bmh "${bmh}" -o jsonpath='{.status.errorMessage}' 2>/dev/null)
@@ -281,7 +282,7 @@ if [ "${SKIP_PROVISIONING:-}" != "true" ]; then
   # --- Step 8: Create workload cluster via CAPI ---
   info "Creating workload cluster..."
   kubectl apply -f "${DEV_DIR}/capi/workload-cluster.yaml"
-  # Note: cpu-workers not applied — only 2 BMHs (CP takes worker-cpu, gpu-workers takes worker-gpu)
+  kubectl apply -f "${DEV_DIR}/capi/cpu-workers.yaml"
   kubectl apply -f "${DEV_DIR}/capi/gpu-workers.yaml"
 fi
 

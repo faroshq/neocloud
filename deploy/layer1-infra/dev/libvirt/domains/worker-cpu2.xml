@@ -1,7 +1,7 @@
-<!-- CPU worker VM: PXE boots from Ironic, gets Ubuntu -->
+<!-- CPU worker 2 VM: PXE boots from Ironic, gets Ubuntu -->
 <!-- Requires Linux host with libvirt system daemon (qemu:///system) -->
 <domain type="kvm">
-  <name>neo-worker-cpu</name>
+  <name>neo-worker-cpu2</name>
   <memory unit="GiB">10</memory>
   <vcpu>4</vcpu>
   <os>
@@ -19,13 +19,13 @@
     <!-- OS disk (blank, Ironic writes Ubuntu here) -->
     <disk type="file" device="disk">
       <driver name="qemu" type="qcow2"/>
-      <source file="NEO_DATADIR/neo-worker-cpu.qcow2"/>
+      <source file="NEO_DATADIR/neo-worker-cpu2.qcow2"/>
       <target dev="vda" bus="virtio"/>
     </disk>
     <!-- NIC 1: provisioning network (PXE boot) -->
     <interface type="network">
       <source network="neo-provisioning"/>
-      <mac address="52:54:00:aa:bb:01"/>
+      <mac address="52:54:00:aa:bb:03"/>
       <model type="virtio"/>
     </interface>
     <!-- NIC 2: baremetal network -->

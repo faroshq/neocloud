@@ -20,7 +20,7 @@ if [ -f "${NEO_DATADIR}/sushy-emulator.pid" ]; then
 fi
 
 # Destroy and undefine VMs
-for vm in neo-mgmt neo-worker-cpu neo-worker-gpu; do
+for vm in neo-mgmt neo-worker-cpu neo-worker-cpu2 neo-worker-gpu; do
   if ${VIRSH} dominfo "${vm}" &>/dev/null; then
     ${VIRSH} destroy "${vm}" 2>/dev/null || true
     ${VIRSH} undefine "${vm}" --remove-all-storage 2>/dev/null || true
@@ -41,6 +41,7 @@ done
 rm -f "${NEO_DATADIR}/neo-mgmt.qcow2"
 rm -f "${NEO_DATADIR}/neo-mgmt-cidata.iso"
 rm -f "${NEO_DATADIR}/neo-worker-cpu.qcow2"
+rm -f "${NEO_DATADIR}/neo-worker-cpu2.qcow2"
 rm -f "${NEO_DATADIR}/neo-worker-gpu.qcow2"
 rm -f "${REPO_ROOT}/.platform-data/workload-kubeconfig"
 

@@ -2,8 +2,8 @@
 <!-- Requires Linux host with libvirt system daemon (qemu:///system) -->
 <domain type="kvm">
   <name>neo-worker-gpu</name>
-  <memory unit="GiB">4</memory>
-  <vcpu>2</vcpu>
+  <memory unit="GiB">20</memory>
+  <vcpu>6</vcpu>
   <os>
     <type arch="x86_64">hvm</type>
     <!-- PXE boot first, then disk (BIOS mode) -->
