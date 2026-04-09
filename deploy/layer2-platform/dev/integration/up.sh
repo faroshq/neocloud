@@ -32,8 +32,9 @@ DEV_KCP_DOMAIN="kcp.${DEV_DOMAIN}"
 DEV_AUTH_DOMAIN="auth.${DEV_DOMAIN}"
 DEV_CONSOLE_DOMAIN="console.${DEV_DOMAIN}"
 
-# In-cluster Zitadel OIDC issuer URL — KCP requires HTTPS for OIDC.
-# We run Zitadel with TLS (cert-manager cert) and use the in-cluster DNS name.
+# In-cluster service DNS names — used by KCP and Zitadel to reach each other
+# without depending on external DNS resolution.
+DEV_KCP_INTERNAL="frontproxy-front-proxy.kcp-system.svc.cluster.local"
 DEV_AUTH_INTERNAL="https://zitadel.zitadel.svc.cluster.local:8443"
 
 # Dev passwords (deterministic for easy re-use)
@@ -310,7 +311,7 @@ kubectl -n kcp-system rollout status statefulset/kcp-etcd --timeout=120s
 # OIDC issuerURL must use in-cluster Zitadel URL (external domain doesn't resolve in-cluster)
 # Also uncomment caFileRef so KCP trusts the self-signed Zitadel CA
 sed \
-  -e "s|kcp.demo.example.com|${DEV_KCP_DOMAIN}|g" \
+  -e "s|kcp.demo.example.com|${DEV_KCP_INTERNAL}|g" \
   -e "s|https://auth.demo.example.com|${DEV_AUTH_INTERNAL}|g" \
   -e 's|      # caFileRef:|      caFileRef:|g' \
   -e 's|      #   name: zitadel-ca-bundle|        name: zitadel-ca-bundle|g' \
