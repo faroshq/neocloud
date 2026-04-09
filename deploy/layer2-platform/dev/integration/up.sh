@@ -32,9 +32,9 @@ DEV_KCP_DOMAIN="kcp.${DEV_DOMAIN}"
 DEV_AUTH_DOMAIN="auth.${DEV_DOMAIN}"
 DEV_CONSOLE_DOMAIN="console.${DEV_DOMAIN}"
 
-# In-cluster Zitadel URL — used by KCP pods to reach Zitadel for OIDC discovery.
-# The external domain (DEV_AUTH_DOMAIN) doesn't resolve inside the cluster.
-DEV_AUTH_INTERNAL="http://zitadel.zitadel.svc.cluster.local:8080"
+# In-cluster Zitadel OIDC issuer URL — KCP requires HTTPS for OIDC.
+# We run Zitadel with TLS (cert-manager cert) and use the in-cluster DNS name.
+DEV_AUTH_INTERNAL="https://zitadel.zitadel.svc.cluster.local:8443"
 
 # Dev passwords (deterministic for easy re-use)
 DEV_POSTGRES_PASSWORD="${DEV_POSTGRES_PASSWORD:-dev-zitadel-password}"
@@ -109,7 +109,7 @@ kubectl -n zitadel rollout status statefulset/postgres --timeout=120s
 
 # ---- Step 3: Zitadel (Helm) ------------------------------------------------
 
-info "Step 3/7: Deploying Zitadel via Helm..."
+info "Step 3/7: Deploying Zitadel via Helm (with TLS)..."
 
 # Create masterkey secret
 kubectl create secret generic zitadel-masterkey \
@@ -117,22 +117,94 @@ kubectl create secret generic zitadel-masterkey \
   --from-literal=masterkey="${DEV_ZITADEL_MASTERKEY}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
+# Create self-signed CA + certificate for Zitadel TLS (in-cluster)
+kubectl apply -f - <<'CERT_EOF'
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: zitadel-selfsigned
+  namespace: zitadel
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: zitadel-ca
+  namespace: zitadel
+spec:
+  isCA: true
+  commonName: zitadel-ca
+  secretName: zitadel-ca-tls
+  issuerRef:
+    name: zitadel-selfsigned
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: zitadel-ca
+  namespace: zitadel
+spec:
+  ca:
+    secretName: zitadel-ca-tls
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: zitadel-tls
+  namespace: zitadel
+spec:
+  secretName: zitadel-tls
+  issuerRef:
+    name: zitadel-ca
+    kind: Issuer
+    group: cert-manager.io
+  dnsNames:
+    - zitadel
+    - zitadel.zitadel
+    - zitadel.zitadel.svc
+    - zitadel.zitadel.svc.cluster.local
+CERT_EOF
+
+# Wait for certificate to be ready
+info "  Waiting for Zitadel TLS certificate..."
+kubectl -n zitadel wait --for=condition=Ready certificate/zitadel-tls --timeout=60s
+
+# Copy the Zitadel CA to kcp-system namespace so KCP can trust it
+info "  Copying Zitadel CA to kcp-system namespace..."
+kubectl create namespace kcp-system --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n zitadel get secret zitadel-ca-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/zitadel-ca.crt
+kubectl -n zitadel get secret zitadel-ca-tls -o jsonpath='{.data.tls\.crt}' | base64 -d >> /tmp/zitadel-ca.crt
+kubectl create secret generic zitadel-ca-bundle \
+  --namespace=kcp-system \
+  --from-file=ca.crt=/tmp/zitadel-ca.crt \
+  --dry-run=client -o yaml | kubectl apply -f -
+rm -f /tmp/zitadel-ca.crt
+
 # Add Helm repo
 helm repo add zitadel https://charts.zitadel.com 2>/dev/null || true
 helm repo update zitadel
 
-# Install with prod values + dev overrides
+# Install with prod values + dev overrides (TLS enabled)
 helm upgrade --install zitadel zitadel/zitadel \
   --namespace zitadel \
   --values "${PROD_DIR}/zitadel/helm-values.yaml" \
   --set replicaCount=1 \
   --set pdb.enabled=false \
-  --set zitadel.configmapConfig.ExternalDomain="${DEV_AUTH_DOMAIN}" \
+  --set zitadel.configmapConfig.ExternalDomain="zitadel.zitadel.svc.cluster.local" \
+  --set zitadel.configmapConfig.ExternalPort=8443 \
+  --set zitadel.configmapConfig.ExternalSecure=true \
+  --set zitadel.configmapConfig.TLS.Enabled=true \
+  --set zitadel.configmapConfig.TLS.CertPath=/etc/zitadel-tls/tls.crt \
+  --set zitadel.configmapConfig.TLS.KeyPath=/etc/zitadel-tls/tls.key \
   --set zitadel.secretConfig.Database.Postgres.User.Password="${DEV_POSTGRES_PASSWORD}" \
   --set zitadel.secretConfig.Database.Postgres.Admin.Password="${DEV_POSTGRES_PASSWORD}" \
+  --set service.port=8443 \
   --wait --timeout 300s
 
-info "Zitadel deployed at ${DEV_AUTH_DOMAIN}"
+info "Zitadel deployed with TLS at ${DEV_AUTH_INTERNAL}"
 
 # ---- Step 4: kcp-operator + etcd + KCP installation ------------------------
 
