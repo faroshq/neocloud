@@ -15,7 +15,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 PROD_DIR="${REPO_ROOT}/deploy/layer2-platform/prod"
-WORKLOAD_KUBECONFIG="${WORKLOAD_KUBECONFIG:-.platform-data/workload-kubeconfig}"
+WORKLOAD_KUBECONFIG="${WORKLOAD_KUBECONFIG:-.platform-data/libvirt/workload-kubeconfig}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
