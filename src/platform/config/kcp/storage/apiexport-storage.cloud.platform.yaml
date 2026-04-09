@@ -1,0 +1,17 @@
+apiVersion: apis.kcp.io/v1alpha2
+kind: APIExport
+metadata:
+  name: storage.cloud.platform
+spec:
+  resources:
+  - group: storage.cloud.platform
+    name: objectbuckets
+    schema: v260409-2bc6a8b.objectbuckets.storage.cloud.platform
+    storage:
+      crd: {}
+  - group: storage.cloud.platform
+    name: volumes
+    schema: v260409-2bc6a8b.volumes.storage.cloud.platform
+    storage:
+      crd: {}
+status: {}

@@ -25,7 +25,10 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 
+	aiv1alpha1 "github.com/faroshq/kcp-ref-arch/project/platform/apis/ai/v1alpha1"
 	computev1alpha1 "github.com/faroshq/kcp-ref-arch/project/platform/apis/compute/v1alpha1"
+	networkv1alpha1 "github.com/faroshq/kcp-ref-arch/project/platform/apis/network/v1alpha1"
+	storagev1alpha1 "github.com/faroshq/kcp-ref-arch/project/platform/apis/storage/v1alpha1"
 )
 
 // NewScheme builds a runtime.Scheme containing all types needed by the
@@ -34,6 +37,9 @@ func NewScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(s))
 	utilruntime.Must(computev1alpha1.AddToScheme(s))
+	utilruntime.Must(networkv1alpha1.AddToScheme(s))
+	utilruntime.Must(storagev1alpha1.AddToScheme(s))
+	utilruntime.Must(aiv1alpha1.AddToScheme(s))
 	utilruntime.Must(corev1alpha1.AddToScheme(s))
 	utilruntime.Must(kcptenancyv1alpha1.AddToScheme(s))
 	utilruntime.Must(apiskcpv1alpha1.AddToScheme(s))

@@ -18,7 +18,9 @@ package bootstrap
 
 import (
 	"context"
+	"embed"
 	"fmt"
+	"strings"
 	"time"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -31,19 +33,20 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// InstallCRDs installs the platform CRDs into the cluster.
-func InstallCRDs(ctx context.Context, config *rest.Config) error {
+// InstallCRDs installs CRDs from the given embedded filesystem into the cluster.
+// The subDir parameter specifies the directory within the embed.FS to read CRDs from.
+func InstallCRDs(ctx context.Context, config *rest.Config, crdFS embed.FS, subDir string) error {
 	logger := klog.FromContext(ctx)
-	logger.Info("Installing platform CRDs")
+	logger.Info("Installing platform CRDs", "subDir", subDir)
 
 	client, err := apiextensionsclient.NewForConfig(config)
 	if err != nil {
 		return fmt.Errorf("creating apiextensions client: %w", err)
 	}
 
-	entries, err := crdFS.ReadDir("crds")
+	entries, err := crdFS.ReadDir(subDir)
 	if err != nil {
-		return fmt.Errorf("reading embedded CRD directory: %w", err)
+		return fmt.Errorf("reading embedded CRD directory %s: %w", subDir, err)
 	}
 
 	var crdNames []string
@@ -51,15 +54,22 @@ func InstallCRDs(ctx context.Context, config *rest.Config) error {
 		if entry.IsDir() {
 			continue
 		}
+		if !strings.HasSuffix(entry.Name(), ".yaml") {
+			continue
+		}
 
-		data, err := crdFS.ReadFile("crds/" + entry.Name())
+		data, err := crdFS.ReadFile(subDir + "/" + entry.Name())
 		if err != nil {
 			return fmt.Errorf("reading embedded CRD file %s: %w", entry.Name(), err)
 		}
 
+		// Skip placeholder files.
 		var crd apiextensionsv1.CustomResourceDefinition
 		if err := yaml.Unmarshal(data, &crd); err != nil {
 			return fmt.Errorf("unmarshaling CRD %s: %w", entry.Name(), err)
+		}
+		if crd.Name == "" {
+			continue
 		}
 
 		existing, err := client.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, crd.Name, metav1.GetOptions{})
@@ -88,7 +98,7 @@ func InstallCRDs(ctx context.Context, config *rest.Config) error {
 		}
 	}
 
-	logger.Info("All platform CRDs installed and established")
+	logger.Info("All platform CRDs installed and established", "subDir", subDir)
 	return nil
 }
 

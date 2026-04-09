@@ -14,22 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package kcp embeds kcp configuration files.
-package kcp
+// Package ai embeds APIResourceSchemas and APIExport for the ai provider.
+package ai
 
 import "embed"
 
-// RootWorkspaceFS contains the platform workspace definition applied to the root workspace.
+// FS contains APIResourceSchemas and APIExport for the ai.cloud.platform provider.
 //
-//go:embed workspace-platform.yaml
-var RootWorkspaceFS embed.FS
-
-// PlatformWorkspaceFS contains workspace definitions for children of root:platform.
-//
-//go:embed workspace-providers.yaml workspace-tenants.yaml
-var PlatformWorkspaceFS embed.FS
-
-// ProvidersFS contains APIResourceSchemas and APIExport applied to root:platform:providers.
-//
-//go:embed apiresourceschema-*.yaml apiexport-*.yaml
-var ProvidersFS embed.FS
+//go:embed *.yaml
+var FS embed.FS

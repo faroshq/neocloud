@@ -104,14 +104,14 @@ LAYER2_INTEGRATION_SCRIPTS := deploy/layer2-platform/dev/integration
 WORKLOAD_KUBECONFIG ?= .platform-data/workload-kubeconfig
 
 OIDC_ISSUER_URL ?= https://localhost:10443
-OIDC_CLIENT_ID ?= 366808256712106243
 CONSOLE_ADDR ?= localhost:1234
+SEED_OUTPUT := $(ZITADEL_COMPOSE_DIR)/.seed-output
 
 # --- Layer 1: Infrastructure (Linux only, libvirt + Metal3) ---
 # Requires a Linux host with KVM. Produces a kubeconfig.
 # For macOS dev, use Lima targets below instead.
 
-layer1-dev-up: ## [Linux] Create dev cluster: libvirt VMs + Metal3 + Ironic + Ubuntu
+make : ## [Linux] Create dev cluster: libvirt VMs + Metal3 + Ironic + Ubuntu
 	$(LAYER1_SCRIPTS)/up.sh
 
 layer1-dev-down: ## [Linux] Tear down all libvirt VMs and networks
@@ -162,6 +162,9 @@ layer2-dev-certs: ## Generate self-signed TLS certs for Zitadel (localhost)
 			-addext "extendedKeyUsage=serverAuth"; \
 	fi
 
+layer2-dev-seed: layer2-dev-up ## Seed OIDC apps in Zitadel (idempotent)
+	$(ZITADEL_COMPOSE_DIR)/seed-apps.sh
+
 layer2-dev-down: ## Stop Zitadel
 	cd $(ZITADEL_COMPOSE_DIR) && docker compose down
 
@@ -183,14 +186,15 @@ dev-lima-up: lima-up layer2-dev-up ## [Lima] Bring up Lima VM + Zitadel (full lo
 
 dev-lima-down: layer2-dev-down lima-down ## [Lima] Tear down Lima VM + Zitadel
 
-dev-lima-run: build-platform layer2-dev-up ## [Lima] Run platform with embedded kcp + Zitadel OIDC
+dev-lima-run: build-platform layer2-dev-seed ## [Lima] Run platform with embedded kcp + Zitadel OIDC
+	$(eval include $(SEED_OUTPUT))
 	./$(BINARY_DIR)/platform start \
 		--embedded-kcp \
 		--dev-mode \
 		--console-addr $(CONSOLE_ADDR) \
 		--oidc-issuer-url $(OIDC_ISSUER_URL) \
 		--oidc-ca-file $(ZITADEL_COMPOSE_DIR)/certs/localhost.crt \
-		$(if $(OIDC_CLIENT_ID),--oidc-client-id $(OIDC_CLIENT_ID),) \
+		--oidc-client-id $(OIDC_WEB_CLIENT_ID) \
 		$(if $(wildcard $(WORKLOAD_KUBECONFIG)),--workload-kubeconfig $(WORKLOAD_KUBECONFIG),)
 
 dev-lima-login: build-cli ## [Lima] Login to local dev platform via OIDC

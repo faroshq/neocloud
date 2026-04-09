@@ -18,5 +18,14 @@ package bootstrap
 
 import "embed"
 
-//go:embed crds/*.yaml
-var crdFS embed.FS
+//go:embed crds/compute/*.yaml
+var ComputeCRDFS embed.FS
+
+//go:embed crds/network/*.yaml
+var NetworkCRDFS embed.FS
+
+//go:embed crds/storage/*.yaml
+var StorageCRDFS embed.FS
+
+//go:embed crds/ai/*.yaml
+var AICRDFS embed.FS

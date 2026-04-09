@@ -41,6 +41,7 @@ import (
 	computev1alpha1 "github.com/faroshq/kcp-ref-arch/project/platform/apis/compute/v1alpha1"
 
 	mcbuilder "sigs.k8s.io/multicluster-runtime/pkg/builder"
+	mchandler "sigs.k8s.io/multicluster-runtime/pkg/handler"
 	mcmanager "sigs.k8s.io/multicluster-runtime/pkg/manager"
 	mcreconcile "sigs.k8s.io/multicluster-runtime/pkg/reconcile"
 )
@@ -58,13 +59,8 @@ var (
 	}
 )
 
-// imageMap maps our platform image names to upstream KubeVirt containerDisk images.
-var imageMap = map[string]string{
-	"ubuntu-22.04": "quay.io/containerdisks/ubuntu:22.04",
-	"ubuntu-24.04": "quay.io/containerdisks/ubuntu:24.04",
-	"debian-12":    "quay.io/containerdisks/debian:12",
-	"debian-13":    "quay.io/containerdisks/debian:13",
-}
+// defaultContainerDiskImage is used when the PublicImage for the VM's disk image cannot be found.
+const defaultContainerDiskImage = "quay.io/containerdisks/ubuntu:22.04"
 
 // defaultNamespace is the namespace where KubeVirt VMs are created on the workload cluster.
 const defaultNamespace = "default"
@@ -88,9 +84,20 @@ func SetupWithManager(mgr mcmanager.Manager, workloadClient dynamic.Interface) e
 		klog.Info("Registering VirtualMachine controller (mock mode)")
 	}
 
+	// noOpHandler registers an informer for the type (populating the cache) without
+	// triggering VM reconciliation. This is needed so c.Get() works for CachedResource-
+	// backed types served through the APIExport virtual workspace.
+	noOpHandler := mchandler.TypedEnqueueRequestsFromMapFunc[client.Object, mcreconcile.Request](
+		func(_ context.Context, _ client.Object) []mcreconcile.Request {
+			return nil
+		},
+	)
+
 	if err := mcbuilder.ControllerManagedBy(mgr).
 		Named("virtualmachine").
 		For(&computev1alpha1.VirtualMachine{}).
+		Watches(&computev1alpha1.PublicCloudInit{}, noOpHandler).
+		Watches(&computev1alpha1.PublicImage{}, noOpHandler).
 		Complete(r); err != nil {
 		return fmt.Errorf("setting up VirtualMachine controller: %w", err)
 	}
@@ -258,8 +265,11 @@ func (r *Reconciler) handlePending(ctx context.Context, c client.Client, vm *com
 			return ctrl.Result{}, err
 		}
 
+		// Resolve container disk image from PublicImage resource.
+		containerDiskImage := resolveContainerDiskImage(ctx, c, vm.Spec.Disk.Image)
+
 		// Build and create the KubeVirt VirtualMachine on the workload cluster.
-		kvVM := buildKubeVirtVM(kvName, vm, userData)
+		kvVM := buildKubeVirtVM(kvName, vm, containerDiskImage, userData)
 		logger.Info("Creating KubeVirt VM on workload cluster", "kubevirtName", kvName)
 
 		_, err = r.workloadClient.Resource(kubevirtVMGVR).Namespace(defaultNamespace).Create(ctx, kvVM, metav1.CreateOptions{})
@@ -688,12 +698,19 @@ func renderCloudInitTemplate(ctx context.Context, c client.Client, tmplStr, host
 	return buf.String(), nil
 }
 
-// buildKubeVirtVM constructs an unstructured KubeVirt VirtualMachine object.
-func buildKubeVirtVM(name string, vm *computev1alpha1.VirtualMachine, userData string) *unstructured.Unstructured {
-	containerDiskImage := imageMap[vm.Spec.Disk.Image]
-	if containerDiskImage == "" {
-		containerDiskImage = "quay.io/containerdisks/ubuntu:22.04"
+// resolveContainerDiskImage looks up the PublicImage for the VM's disk image name
+// and returns the container disk image URL. Falls back to the default if not found.
+func resolveContainerDiskImage(ctx context.Context, c client.Client, imageName string) string {
+	var img computev1alpha1.PublicImage
+	if err := c.Get(ctx, client.ObjectKey{Name: imageName}, &img); err != nil {
+		klog.FromContext(ctx).V(4).Info("PublicImage not found, using default", "image", imageName, "error", err)
+		return defaultContainerDiskImage
 	}
+	return img.Spec.Image
+}
+
+// buildKubeVirtVM constructs an unstructured KubeVirt VirtualMachine object.
+func buildKubeVirtVM(name string, vm *computev1alpha1.VirtualMachine, containerDiskImage, userData string) *unstructured.Unstructured {
 
 	// Build volumes list.
 	volumes := []interface{}{

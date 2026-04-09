@@ -19,6 +19,7 @@ package kcp
 import (
 	"context"
 	"crypto/sha256"
+	"embed"
 	"encoding/hex"
 	"fmt"
 	"strings"
@@ -34,7 +35,13 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 
-	kcpconfig "github.com/faroshq/kcp-ref-arch/project/platform/config/kcp"
+	kcpai "github.com/faroshq/kcp-ref-arch/project/platform/config/kcp/ai"
+	kcpcompute "github.com/faroshq/kcp-ref-arch/project/platform/config/kcp/compute"
+	kcpnetwork "github.com/faroshq/kcp-ref-arch/project/platform/config/kcp/network"
+	kcpplatformws "github.com/faroshq/kcp-ref-arch/project/platform/config/kcp/platform"
+	kcpproviders "github.com/faroshq/kcp-ref-arch/project/platform/config/kcp/providers"
+	kcproot "github.com/faroshq/kcp-ref-arch/project/platform/config/kcp/root"
+	kcpstorage "github.com/faroshq/kcp-ref-arch/project/platform/config/kcp/storage"
 	publiccloudinitsconfig "github.com/faroshq/kcp-ref-arch/project/platform/config/publiccloudinits"
 	publicimagesconfig "github.com/faroshq/kcp-ref-arch/project/platform/config/publicimages"
 	"github.com/faroshq/kcp-ref-arch/project/platform/pkg/bootstrap"
@@ -65,6 +72,67 @@ var (
 	}
 )
 
+// ProviderInfo describes a provider workspace and its associated APIExport.
+type ProviderInfo struct {
+	// Name is a human-readable identifier (e.g. "compute").
+	Name string
+	// WorkspaceName is the kcp workspace name under root:providers.
+	WorkspaceName string
+	// Path is the full kcp workspace path (e.g. "root:providers:compute").
+	Path string
+	// ExportName is the APIExport name (e.g. "compute.cloud.platform").
+	ExportName string
+	// CRDFS is the embedded filesystem containing CRDs for this provider.
+	CRDFS embed.FS
+	// CRDSubDir is the subdirectory within CRDFS to read CRDs from.
+	CRDSubDir string
+	// SchemaFS is the embedded filesystem containing APIResourceSchemas and APIExport.
+	SchemaFS embed.FS
+	// NeedsSecretsClaim indicates whether the APIBinding needs secrets permission claims.
+	NeedsSecretsClaim bool
+}
+
+// AllProviders defines all provider workspaces.
+var AllProviders = []ProviderInfo{
+	{
+		Name:              "compute",
+		WorkspaceName:     "compute",
+		Path:              "root:providers:compute",
+		ExportName:        "compute.cloud.platform",
+		CRDFS:             bootstrap.ComputeCRDFS,
+		CRDSubDir:         "crds/compute",
+		SchemaFS:          kcpcompute.FS,
+		NeedsSecretsClaim: true,
+	},
+	{
+		Name:          "networking",
+		WorkspaceName: "networking",
+		Path:          "root:providers:networking",
+		ExportName:    "network.cloud.platform",
+		CRDFS:         bootstrap.NetworkCRDFS,
+		CRDSubDir:     "crds/network",
+		SchemaFS:      kcpnetwork.FS,
+	},
+	{
+		Name:          "storage",
+		WorkspaceName: "storage",
+		Path:          "root:providers:storage",
+		ExportName:    "storage.cloud.platform",
+		CRDFS:         bootstrap.StorageCRDFS,
+		CRDSubDir:     "crds/storage",
+		SchemaFS:      kcpstorage.FS,
+	},
+	{
+		Name:          "ai",
+		WorkspaceName: "ai",
+		Path:          "root:providers:ai",
+		ExportName:    "ai.cloud.platform",
+		CRDFS:         bootstrap.AICRDFS,
+		CRDSubDir:     "crds/ai",
+		SchemaFS:      kcpai.FS,
+	},
+}
+
 // Bootstrapper sets up the kcp workspace hierarchy and API exports.
 type Bootstrapper struct {
 	config           *rest.Config
@@ -78,8 +146,12 @@ func NewBootstrapper(config *rest.Config, staticAuthTokens []string) *Bootstrapp
 
 // Bootstrap creates the workspace hierarchy:
 //
+//	root:providers                    - Parent for all provider workspaces
+//	root:providers:compute            - Holds APIExport "compute.cloud.platform"
+//	root:providers:networking         - Holds APIExport "network.cloud.platform"
+//	root:providers:storage            - Holds APIExport "storage.cloud.platform"
+//	root:providers:ai                 - Holds APIExport "ai.cloud.platform"
 //	root:platform                     - Root platform workspace
-//	root:platform:providers           - Holds APIExport "cloud.platform"
 //	root:platform:tenants             - Parent for tenant workspaces
 func (b *Bootstrapper) Bootstrap(ctx context.Context) error {
 	logger := klog.FromContext(ctx)
@@ -91,33 +163,50 @@ func (b *Bootstrapper) Bootstrap(ctx context.Context) error {
 		return fmt.Errorf("creating root clients: %w", err)
 	}
 
-	// 2. Bootstrap root:platform workspace.
-	logger.Info("Bootstrapping root:platform workspace")
-	if err := confighelpers.Bootstrap(ctx, rootDiscovery, rootDynamic, kcpconfig.RootWorkspaceFS); err != nil {
-		return fmt.Errorf("bootstrapping root:platform workspace: %w", err)
+	// 2. Bootstrap root:providers and root:platform workspaces.
+	logger.Info("Bootstrapping root-level workspaces (providers, platform)")
+	if err := confighelpers.Bootstrap(ctx, rootDiscovery, rootDynamic, kcproot.FS); err != nil {
+		return fmt.Errorf("bootstrapping root workspaces: %w", err)
 	}
-	if err := waitForWorkspaceReady(ctx, rootDynamic, "platform"); err != nil {
-		return fmt.Errorf("waiting for platform workspace: %w", err)
+	for _, name := range []string{"providers", "platform"} {
+		if err := waitForWorkspaceReady(ctx, rootDynamic, name); err != nil {
+			return fmt.Errorf("waiting for %s workspace: %w", name, err)
+		}
 	}
 
-	// 3. Bootstrap child workspaces: providers, tenants.
+	// 3. Bootstrap child workspaces under root:providers.
+	providersConfig := configForPath(b.config, "root:providers")
+	providersDynamic, providersDiscovery, err := newClients(providersConfig)
+	if err != nil {
+		return fmt.Errorf("creating providers clients: %w", err)
+	}
+
+	logger.Info("Bootstrapping provider child workspaces (compute, networking, storage, ai)")
+	if err := confighelpers.Bootstrap(ctx, providersDiscovery, providersDynamic, kcpproviders.FS); err != nil {
+		return fmt.Errorf("bootstrapping provider workspaces: %w", err)
+	}
+	for _, p := range AllProviders {
+		if err := waitForWorkspaceReady(ctx, providersDynamic, p.WorkspaceName); err != nil {
+			return fmt.Errorf("waiting for %s workspace: %w", p.WorkspaceName, err)
+		}
+	}
+
+	// 4. Bootstrap tenants workspace under root:platform.
 	platformConfig := configForPath(b.config, "root:platform")
 	platformDynamic, platformDiscovery, err := newClients(platformConfig)
 	if err != nil {
 		return fmt.Errorf("creating platform clients: %w", err)
 	}
 
-	logger.Info("Bootstrapping child workspaces: providers, tenants")
-	if err := confighelpers.Bootstrap(ctx, platformDiscovery, platformDynamic, kcpconfig.PlatformWorkspaceFS); err != nil {
-		return fmt.Errorf("bootstrapping child workspaces: %w", err)
+	logger.Info("Bootstrapping tenants workspace under root:platform")
+	if err := confighelpers.Bootstrap(ctx, platformDiscovery, platformDynamic, kcpplatformws.FS); err != nil {
+		return fmt.Errorf("bootstrapping tenants workspace: %w", err)
 	}
-	for _, name := range []string{"providers", "tenants"} {
-		if err := waitForWorkspaceReady(ctx, platformDynamic, name); err != nil {
-			return fmt.Errorf("waiting for %s workspace: %w", name, err)
-		}
+	if err := waitForWorkspaceReady(ctx, platformDynamic, "tenants"); err != nil {
+		return fmt.Errorf("waiting for tenants workspace: %w", err)
 	}
 
-	// 4. Fetch tenancy.kcp.io identity hash from root workspace.
+	// 5. Fetch tenancy.kcp.io identity hash from root workspace.
 	logger.Info("Fetching tenancy.kcp.io identity hash from root workspace")
 	tenancyExport, err := rootDynamic.Resource(apiExportGVR).Get(ctx, "tenancy.kcp.io", metav1.GetOptions{})
 	if err != nil {
@@ -129,74 +218,80 @@ func (b *Bootstrapper) Bootstrap(ctx context.Context) error {
 	}
 	logger.Info("Got tenancy.kcp.io identity hash", "hash", identityHash)
 
-	// 5. Create providers clients and install CRDs in root:platform:providers.
-	providersConfig := configForPath(b.config, "root:platform:providers")
-	providersDynamic, providersDiscovery, err := newClients(providersConfig)
-	if err != nil {
-		return fmt.Errorf("creating providers clients: %w", err)
+	// 6. Bootstrap each provider workspace: CRDs + PublicImages/CloudInits (compute only) + APIResourceSchemas + APIExport.
+	for _, p := range AllProviders {
+		provConfig := configForPath(b.config, p.Path)
+		provDynamic, provDiscovery, err := newClients(provConfig)
+		if err != nil {
+			return fmt.Errorf("creating %s clients: %w", p.Name, err)
+		}
+
+		logger.Info("Installing CRDs in provider workspace", "provider", p.Name)
+		if err := bootstrap.InstallCRDs(ctx, provConfig, p.CRDFS, p.CRDSubDir); err != nil {
+			return fmt.Errorf("installing CRDs in %s: %w", p.Name, err)
+		}
+
+		// Compute-specific: bootstrap PublicImages, PublicCloudInits, and CachedResources.
+		var publicimagesIdentityHash, publiccloudinitsIdentityHash string
+		if p.Name == "compute" {
+			logger.Info("Bootstrapping PublicImage resources in compute workspace")
+			if err := confighelpers.Bootstrap(ctx, provDiscovery, provDynamic, publicimagesconfig.PublicImagesFS); err != nil {
+				return fmt.Errorf("bootstrapping public images: %w", err)
+			}
+
+			logger.Info("Bootstrapping CachedResource for publicimages")
+			if err := confighelpers.Bootstrap(ctx, provDiscovery, provDynamic, publicimagesconfig.CachedResourceFS); err != nil {
+				return fmt.Errorf("bootstrapping cached resource for publicimages: %w", err)
+			}
+
+			logger.Info("Bootstrapping PublicCloudInit resources in compute workspace")
+			if err := confighelpers.Bootstrap(ctx, provDiscovery, provDynamic, publiccloudinitsconfig.PublicCloudInitsFS); err != nil {
+				return fmt.Errorf("bootstrapping public cloud-inits: %w", err)
+			}
+
+			logger.Info("Bootstrapping CachedResource for publiccloudinits")
+			if err := confighelpers.Bootstrap(ctx, provDiscovery, provDynamic, publiccloudinitsconfig.CachedResourceFS); err != nil {
+				return fmt.Errorf("bootstrapping cached resource for publiccloudinits: %w", err)
+			}
+
+			logger.Info("Waiting for CachedResource publicimages to be ready")
+			publicimagesIdentityHash, err = waitForCachedResourceReady(ctx, provDynamic, "publicimages")
+			if err != nil {
+				return fmt.Errorf("waiting for CachedResource publicimages: %w", err)
+			}
+
+			logger.Info("Waiting for CachedResource publiccloudinits to be ready")
+			publiccloudinitsIdentityHash, err = waitForCachedResourceReady(ctx, provDynamic, "publiccloudinits")
+			if err != nil {
+				return fmt.Errorf("waiting for CachedResource publiccloudinits: %w", err)
+			}
+		}
+
+		// Bootstrap APIResourceSchemas and APIExport.
+		logger.Info("Bootstrapping APIResourceSchemas and APIExport", "provider", p.Name)
+		replaceOpts := []confighelpers.Option{
+			confighelpers.ReplaceOption("__TENANCY_IDENTITY_HASH__", identityHash),
+		}
+		if p.Name == "compute" {
+			replaceOpts = append(replaceOpts,
+				confighelpers.ReplaceOption("__PUBLICIMAGES_IDENTITY_HASH__", publicimagesIdentityHash),
+				confighelpers.ReplaceOption("__PUBLICCLOUDINITS_IDENTITY_HASH__", publiccloudinitsIdentityHash),
+			)
+		}
+		if err := confighelpers.Bootstrap(ctx, provDiscovery, provDynamic, p.SchemaFS, replaceOpts...); err != nil {
+			return fmt.Errorf("bootstrapping %s schemas: %w", p.Name, err)
+		}
 	}
 
-	logger.Info("Installing CRDs in providers workspace")
-	if err := bootstrap.InstallCRDs(ctx, providersConfig); err != nil {
-		return fmt.Errorf("installing CRDs in providers: %w", err)
+	// 7. Create APIBindings in root workspace for all providers.
+	logger.Info("Ensuring APIBindings for all providers in root workspace")
+	for _, p := range AllProviders {
+		if err := ensureAPIBinding(ctx, rootDynamic, p.ExportName, p.Path, p.NeedsSecretsClaim); err != nil {
+			return fmt.Errorf("creating APIBinding for %s: %w", p.ExportName, err)
+		}
 	}
 
-	// 6. Create PublicImage CRs in root:platform:providers (source for cache replication).
-	logger.Info("Bootstrapping PublicImage resources in providers workspace")
-	if err := confighelpers.Bootstrap(ctx, providersDiscovery, providersDynamic, publicimagesconfig.PublicImagesFS); err != nil {
-		return fmt.Errorf("bootstrapping public images: %w", err)
-	}
-
-	// 7. Create CachedResource in root:platform:providers for publicimages replication.
-	logger.Info("Bootstrapping CachedResource for publicimages in providers workspace")
-	if err := confighelpers.Bootstrap(ctx, providersDiscovery, providersDynamic, publicimagesconfig.CachedResourceFS); err != nil {
-		return fmt.Errorf("bootstrapping cached resource for publicimages: %w", err)
-	}
-
-	// 8. Create PublicCloudInit CRs in root:platform:providers (source for cache replication).
-	logger.Info("Bootstrapping PublicCloudInit resources in providers workspace")
-	if err := confighelpers.Bootstrap(ctx, providersDiscovery, providersDynamic, publiccloudinitsconfig.PublicCloudInitsFS); err != nil {
-		return fmt.Errorf("bootstrapping public cloud-inits: %w", err)
-	}
-
-	// 9. Create CachedResource in root:platform:providers for publiccloudinits replication.
-	logger.Info("Bootstrapping CachedResource for publiccloudinits in providers workspace")
-	if err := confighelpers.Bootstrap(ctx, providersDiscovery, providersDynamic, publiccloudinitsconfig.CachedResourceFS); err != nil {
-		return fmt.Errorf("bootstrapping cached resource for publiccloudinits: %w", err)
-	}
-
-	// 10. Wait for CachedResources to be ready and get identity hashes.
-	logger.Info("Waiting for CachedResource publicimages to be ready")
-	publicimagesIdentityHash, err := waitForCachedResourceReady(ctx, providersDynamic, "publicimages")
-	if err != nil {
-		return fmt.Errorf("waiting for CachedResource publicimages: %w", err)
-	}
-	logger.Info("Got publicimages identity hash", "hash", publicimagesIdentityHash)
-
-	logger.Info("Waiting for CachedResource publiccloudinits to be ready")
-	publiccloudinitsIdentityHash, err := waitForCachedResourceReady(ctx, providersDynamic, "publiccloudinits")
-	if err != nil {
-		return fmt.Errorf("waiting for CachedResource publiccloudinits: %w", err)
-	}
-	logger.Info("Got publiccloudinits identity hash", "hash", publiccloudinitsIdentityHash)
-
-	// 11. Bootstrap APIResourceSchemas and APIExport in root:platform:providers.
-	logger.Info("Bootstrapping APIResourceSchemas and APIExport")
-	if err := confighelpers.Bootstrap(ctx, providersDiscovery, providersDynamic, kcpconfig.ProvidersFS,
-		confighelpers.ReplaceOption("__TENANCY_IDENTITY_HASH__", identityHash),
-		confighelpers.ReplaceOption("__PUBLICIMAGES_IDENTITY_HASH__", publicimagesIdentityHash),
-		confighelpers.ReplaceOption("__PUBLICCLOUDINITS_IDENTITY_HASH__", publiccloudinitsIdentityHash),
-	); err != nil {
-		return fmt.Errorf("bootstrapping providers: %w", err)
-	}
-
-	// 12. Create APIBinding in root workspace to bind to cloud.platform APIExport.
-	logger.Info("Ensuring APIBinding for cloud.platform in root workspace")
-	if err := ensureAPIBinding(ctx, rootDynamic, "cloud.platform", "root:platform:providers"); err != nil {
-		return fmt.Errorf("creating APIBinding for cloud.platform: %w", err)
-	}
-
-	// 13. Create ClusterRoleBindings for static token users in root workspace.
+	// 8. Create ClusterRoleBindings for static token users in root workspace.
 	if len(b.staticAuthTokens) > 0 {
 		logger.Info("Bootstrapping RBAC for static token users")
 		for _, token := range b.staticAuthTokens {
@@ -254,8 +349,31 @@ func ensureClusterAdmin(ctx context.Context, client dynamic.Interface, userName 
 
 // ensureAPIBinding creates an APIBinding in the target workspace that binds to the
 // given APIExport name from the specified workspace path.
-func ensureAPIBinding(ctx context.Context, client dynamic.Interface, exportName, exportWorkspacePath string) error {
+func ensureAPIBinding(ctx context.Context, client dynamic.Interface, exportName, exportWorkspacePath string, needsSecretsClaim bool) error {
 	bindingName := exportName
+
+	spec := map[string]interface{}{
+		"reference": map[string]interface{}{
+			"export": map[string]interface{}{
+				"path": exportWorkspacePath,
+				"name": exportName,
+			},
+		},
+	}
+
+	if needsSecretsClaim {
+		spec["permissionClaims"] = []interface{}{
+			map[string]interface{}{
+				"group":    "",
+				"resource": "secrets",
+				"state":    "Accepted",
+				"verbs":    []interface{}{"get", "list", "create", "update", "delete"},
+				"selector": map[string]interface{}{
+					"matchAll": true,
+				},
+			},
+		}
+	}
 
 	binding := &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -264,35 +382,19 @@ func ensureAPIBinding(ctx context.Context, client dynamic.Interface, exportName,
 			"metadata": map[string]interface{}{
 				"name": bindingName,
 			},
-			"spec": map[string]interface{}{
-				"reference": map[string]interface{}{
-					"export": map[string]interface{}{
-						"path": exportWorkspacePath,
-						"name": exportName,
-					},
-				},
-				"permissionClaims": []interface{}{
-					map[string]interface{}{
-						"group":    "",
-						"resource": "secrets",
-						"state":    "Accepted",
-						"verbs":    []interface{}{"get", "list", "create", "update", "delete"},
-						"selector": map[string]interface{}{
-							"matchAll": true,
-						},
-					},
-				},
-			},
+			"spec": spec,
 		},
 	}
 
 	_, err := client.Resource(apiBindingGVR).Create(ctx, binding, metav1.CreateOptions{})
 	if errors.IsAlreadyExists(err) {
-		// Ensure permission claims are accepted on the existing binding.
-		patch := []byte(`{"spec":{"permissionClaims":[{"group":"","resource":"secrets","state":"Accepted","verbs":["get","list","create","update","delete"],"selector":{"matchAll":true}}]}}`)
-		_, err = client.Resource(apiBindingGVR).Patch(ctx, bindingName, types.MergePatchType, patch, metav1.PatchOptions{})
-		if err != nil {
-			return fmt.Errorf("patching APIBinding %q permission claims: %w", bindingName, err)
+		if needsSecretsClaim {
+			// Ensure permission claims are accepted on the existing binding.
+			patch := []byte(`{"spec":{"permissionClaims":[{"group":"","resource":"secrets","state":"Accepted","verbs":["get","list","create","update","delete"],"selector":{"matchAll":true}}]}}`)
+			_, err = client.Resource(apiBindingGVR).Patch(ctx, bindingName, types.MergePatchType, patch, metav1.PatchOptions{})
+			if err != nil {
+				return fmt.Errorf("patching APIBinding %q permission claims: %w", bindingName, err)
+			}
 		}
 		return nil
 	}
@@ -355,11 +457,13 @@ func (b *Bootstrapper) EnsureTenantWorkspace(ctx context.Context, workspaceName,
 	}
 	logger.Info("Ensured cluster-admin for tenant", "user", oidcUserName, "workspace", wsPath)
 
-	// 3. Create APIBinding for cloud.platform in the tenant workspace.
-	if err := ensureAPIBinding(ctx, wsDynamic, "cloud.platform", "root:platform:providers"); err != nil {
-		return "", fmt.Errorf("creating APIBinding in %s: %w", wsPath, err)
+	// 3. Create APIBindings for all providers in the tenant workspace.
+	for _, p := range AllProviders {
+		if err := ensureAPIBinding(ctx, wsDynamic, p.ExportName, p.Path, p.NeedsSecretsClaim); err != nil {
+			return "", fmt.Errorf("creating APIBinding for %s in %s: %w", p.ExportName, wsPath, err)
+		}
+		logger.Info("Ensured APIBinding", "export", p.ExportName, "workspace", wsPath)
 	}
-	logger.Info("Ensured APIBinding for cloud.platform", "workspace", wsPath)
 
 	// 4. Read the logical cluster name (the obfuscated cluster ID used in URLs).
 	lc, err := wsDynamic.Resource(logicalClusterGVR).Get(ctx, "cluster", metav1.GetOptions{})
@@ -380,9 +484,9 @@ func (b *Bootstrapper) EnsureTenantWorkspace(ctx context.Context, workspaceName,
 	return lcName, nil
 }
 
-// ProvidersConfig returns a rest.Config targeting root:platform:providers.
-func (b *Bootstrapper) ProvidersConfig() *rest.Config {
-	return configForPath(b.config, "root:platform:providers")
+// ProviderConfig returns a rest.Config targeting the given provider workspace.
+func (b *Bootstrapper) ProviderConfig(providerName string) *rest.Config {
+	return configForPath(b.config, fmt.Sprintf("root:providers:%s", providerName))
 }
 
 // newClients creates dynamic and discovery clients from a rest.Config.

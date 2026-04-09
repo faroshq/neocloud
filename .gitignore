@@ -2,5 +2,6 @@ project/zitadel
 project/zitadel-compose/certs/*.crt
 project/zitadel-compose/certs/*.key
 .platform-data
+.seed-output
 bin/
 .claude/settings.json

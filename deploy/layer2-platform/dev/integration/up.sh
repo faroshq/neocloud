@@ -73,6 +73,37 @@ info "Connected to workload cluster."
 
 info "Step 1/7: Installing prerequisites..."
 
+# krew (kubectl plugin manager) + kcp plugins
+if ! kubectl krew version &>/dev/null 2>&1; then
+  info "  Installing krew..."
+  (
+    set -x; cd "$(mktemp -d)" &&
+    OS="$(uname | tr '[:upper:]' '[:lower:]')" &&
+    ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')" &&
+    KREW="krew-${OS}_${ARCH}" &&
+    curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/${KREW}.tar.gz" &&
+    tar zxvf "${KREW}.tar.gz" &&
+    ./"${KREW}" install krew
+  )
+  export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
+else
+  info "  krew already installed."
+  export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
+fi
+
+# Add kcp-dev krew index and install ws plugin
+if ! kubectl krew index list 2>/dev/null | grep -q 'kcp-dev'; then
+  info "  Adding kcp-dev krew index..."
+  kubectl krew index add kcp-dev https://github.com/kcp-dev/krew-index.git
+fi
+
+if ! kubectl krew list 2>/dev/null | grep -q 'ws'; then
+  info "  Installing kubectl-ws plugin via krew..."
+  kubectl krew install kcp-dev/ws
+else
+  info "  kubectl-ws plugin already installed."
+fi
+
 # cert-manager (needed by kcp-operator for TLS)
 if ! kubectl get crd certificates.cert-manager.io &>/dev/null; then
   info "  Installing cert-manager..."

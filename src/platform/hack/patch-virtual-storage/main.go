@@ -25,7 +25,7 @@ limitations under the License.
 //
 // Usage:
 //
-//	go run ./hack/patch-virtual-storage --config-dir config/kcp
+//	go run ./hack/patch-virtual-storage --config-dir config/kcp/compute
 package main
 
 import (
@@ -56,7 +56,7 @@ var virtualResources = []virtualResource{
 }
 
 func main() {
-	configDir := flag.String("config-dir", "config/kcp", "directory containing APIExport YAML files")
+	configDir := flag.String("config-dir", "config/kcp/compute", "directory containing APIExport YAML files")
 	flag.Parse()
 
 	// Build lookup set.
@@ -76,11 +76,8 @@ func main() {
 			continue
 		}
 		name := e.Name()
-		// Only process per-group apiexport files, skip the merged one.
+		// Only process apiexport files.
 		if !strings.HasPrefix(name, "apiexport-") || !strings.HasSuffix(name, ".yaml") {
-			continue
-		}
-		if name == "apiexport-cloud.platform.yaml" {
 			continue
 		}
 

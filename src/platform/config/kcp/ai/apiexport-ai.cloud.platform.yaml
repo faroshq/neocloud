@@ -1,0 +1,17 @@
+apiVersion: apis.kcp.io/v1alpha2
+kind: APIExport
+metadata:
+  name: ai.cloud.platform
+spec:
+  resources:
+  - group: ai.cloud.platform
+    name: gpujobs
+    schema: v260409-2bc6a8b.gpujobs.ai.cloud.platform
+    storage:
+      crd: {}
+  - group: ai.cloud.platform
+    name: notebooks
+    schema: v260409-2bc6a8b.notebooks.ai.cloud.platform
+    storage:
+      crd: {}
+status: {}

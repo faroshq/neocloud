@@ -258,8 +258,8 @@ spec:
               rootPasswordSecret:
                 description: |-
                   RootPasswordSecret references the Secret containing the root password
-                  when EnableRootLogin is true. Set automatically if no RootPasswordSecret
-                  was provided in spec.ssh.
+                  on the workload cluster when EnableRootLogin is true. Set automatically
+                  if no RootPasswordSecret was provided in spec.ssh.
                 properties:
                   name:
                     description: Name of the Secret.

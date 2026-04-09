@@ -4,8 +4,7 @@ metadata:
   name: compute.cloud.platform
 spec:
   permissionClaims:
-  - group: ""
-    resource: secrets
+  - resource: secrets
     verbs:
     - get
     - list
@@ -45,7 +44,7 @@ spec:
           name: publicimages
   - group: compute.cloud.platform
     name: virtualmachines
-    schema: v260407-b609c31.virtualmachines.compute.cloud.platform
+    schema: v260409-2bc6a8b.virtualmachines.compute.cloud.platform
     storage:
       crd: {}
 status: {}

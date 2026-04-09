@@ -39,7 +39,10 @@ import (
 
 	platformauth "github.com/faroshq/kcp-ref-arch/project/platform/pkg/auth"
 	"github.com/faroshq/kcp-ref-arch/project/platform/pkg/bootstrap"
+	aicontrollers "github.com/faroshq/kcp-ref-arch/project/platform/pkg/controllers/ai"
 	compute "github.com/faroshq/kcp-ref-arch/project/platform/pkg/controllers/compute/virtualmachines"
+	networkcontrollers "github.com/faroshq/kcp-ref-arch/project/platform/pkg/controllers/network"
+	storagecontrollers "github.com/faroshq/kcp-ref-arch/project/platform/pkg/controllers/storage"
 	kcputil "github.com/faroshq/kcp-ref-arch/project/platform/pkg/kcp"
 	"github.com/faroshq/kcp-ref-arch/project/platform/pkg/proxy"
 	sshproxy "github.com/faroshq/kcp-ref-arch/project/platform/pkg/ssh"
@@ -144,9 +147,11 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// Bootstrap CRDs only when NOT using kcp (kcp uses APIExport/APIBinding instead).
 	if kcpConfig == nil {
-		logger.Info("Installing CRDs")
-		if err := bootstrap.InstallCRDs(ctx, config); err != nil {
-			return fmt.Errorf("installing CRDs: %w", err)
+		logger.Info("Installing CRDs (non-kcp mode)")
+		for _, p := range kcputil.AllProviders {
+			if err := bootstrap.InstallCRDs(ctx, config, p.CRDFS, p.CRDSubDir); err != nil {
+				return fmt.Errorf("installing CRDs for %s: %w", p.Name, err)
+			}
 		}
 	}
 
@@ -267,37 +272,83 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	// Start multicluster controllers (when kcp is configured).
+	// Each provider gets its own multicluster manager watching its own APIExport.
 	if kcpConfig != nil {
 		ctrl.SetLogger(klog.NewKlogr())
 
 		scheme := NewScheme()
 
-		providersConfig := rest.CopyConfig(kcpConfig)
-		providersConfig.Host = kcputil.ClusterURL(providersConfig.Host, "root:platform:providers")
-
-		provider, err := apiexport.New(providersConfig, "cloud.platform", apiexport.Options{Scheme: scheme})
-		if err != nil {
-			return fmt.Errorf("creating multicluster provider: %w", err)
+		type providerSetup struct {
+			name       string
+			path       string
+			exportName string
+			setupFn    func(mgr mcmanager.Manager) error
 		}
 
-		mgr, err := mcmanager.New(providersConfig, provider, manager.Options{
-			Scheme:  scheme,
-			Metrics: metricsserver.Options{BindAddress: "0"},
-		})
-		if err != nil {
-			return fmt.Errorf("creating multicluster manager: %w", err)
+		providers := []providerSetup{
+			{
+				name:       "compute",
+				path:       "root:providers:compute",
+				exportName: "compute.cloud.platform",
+				setupFn: func(mgr mcmanager.Manager) error {
+					return compute.SetupWithManager(mgr, workloadClient)
+				},
+			},
+			{
+				name:       "networking",
+				path:       "root:providers:networking",
+				exportName: "network.cloud.platform",
+				setupFn: func(mgr mcmanager.Manager) error {
+					return networkcontrollers.SetupWithManager(mgr)
+				},
+			},
+			{
+				name:       "storage",
+				path:       "root:providers:storage",
+				exportName: "storage.cloud.platform",
+				setupFn: func(mgr mcmanager.Manager) error {
+					return storagecontrollers.SetupWithManager(mgr)
+				},
+			},
+			{
+				name:       "ai",
+				path:       "root:providers:ai",
+				exportName: "ai.cloud.platform",
+				setupFn: func(mgr mcmanager.Manager) error {
+					return aicontrollers.SetupWithManager(mgr)
+				},
+			},
 		}
 
-		if err := compute.SetupWithManager(mgr, workloadClient); err != nil {
-			return fmt.Errorf("setting up compute controller: %w", err)
-		}
+		for _, p := range providers {
+			provConfig := rest.CopyConfig(kcpConfig)
+			provConfig.Host = kcputil.ClusterURL(provConfig.Host, p.path)
 
-		go func() {
-			logger.Info("Starting multicluster manager")
-			if err := mgr.Start(ctx); err != nil {
-				logger.Error(err, "Multicluster manager failed")
+			provider, err := apiexport.New(provConfig, p.exportName, apiexport.Options{Scheme: scheme})
+			if err != nil {
+				return fmt.Errorf("creating multicluster provider for %s: %w", p.name, err)
 			}
-		}()
+
+			mgr, err := mcmanager.New(provConfig, provider, manager.Options{
+				Scheme:  scheme,
+				Metrics: metricsserver.Options{BindAddress: "0"},
+			})
+			if err != nil {
+				return fmt.Errorf("creating multicluster manager for %s: %w", p.name, err)
+			}
+
+			if err := p.setupFn(mgr); err != nil {
+				return fmt.Errorf("setting up controllers for %s: %w", p.name, err)
+			}
+
+			pName := p.name // capture for goroutine
+			go func() {
+				logger.Info("Starting multicluster manager", "provider", pName)
+				if err := mgr.Start(ctx); err != nil {
+					logger.Error(err, "Multicluster manager failed", "provider", pName)
+				}
+			}()
+		}
 	}
 
 	// Start HTTP server.

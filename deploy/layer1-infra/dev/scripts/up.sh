@@ -359,6 +359,31 @@ KUBECONFIG="${WORKLOAD_KUBECONFIG}" kubectl apply -f https://raw.githubuserconte
 # Set as default StorageClass
 KUBECONFIG="${WORKLOAD_KUBECONFIG}" kubectl patch storageclass local-path -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' || true
 
+# --- Step 11: Install KubeVirt on workload cluster ---
+info "Installing KubeVirt ${KUBEVIRT_VERSION} on workload cluster..."
+KUBECONFIG="${WORKLOAD_KUBECONFIG}" kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml"
+KUBECONFIG="${WORKLOAD_KUBECONFIG}" kubectl -n kubevirt wait --for=condition=Available deployment/virt-operator --timeout=300s
+
+info "Applying KubeVirt CR (dev mode with emulation)..."
+KUBECONFIG="${WORKLOAD_KUBECONFIG}" kubectl create namespace kubevirt --dry-run=client -o yaml | KUBECONFIG="${WORKLOAD_KUBECONFIG}" kubectl apply -f -
+KUBECONFIG="${WORKLOAD_KUBECONFIG}" kubectl apply -f "${DEV_DIR}/kubevirt-cr-dev.yaml"
+
+info "Waiting for KubeVirt to be ready..."
+for i in $(seq 1 60); do
+  PHASE=$(KUBECONFIG="${WORKLOAD_KUBECONFIG}" kubectl get kubevirt kubevirt -n kubevirt -o jsonpath='{.status.phase}' 2>/dev/null || echo "unknown")
+  if [ "${PHASE}" = "Deployed" ]; then
+    info "  KubeVirt is deployed."
+    break
+  fi
+  if [ $((i % 6)) -eq 0 ]; then
+    info "  KubeVirt phase: ${PHASE} (waiting... ${i}/60)"
+  fi
+  if [ "${i}" -eq 60 ]; then
+    warn "KubeVirt not fully deployed yet. Phase: ${PHASE}"
+  fi
+  sleep 10
+done
+
 info ""
 info "Layer 1 dev environment is ready!"
 info "Workload cluster kubeconfig: ${WORKLOAD_KUBECONFIG}"

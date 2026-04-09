@@ -1,0 +1,12 @@
+apiVersion: apis.kcp.io/v1alpha2
+kind: APIExport
+metadata:
+  name: network.cloud.platform
+spec:
+  resources:
+  - group: network.cloud.platform
+    name: publicips
+    schema: v260409-2bc6a8b.publicips.network.cloud.platform
+    storage:
+      crd: {}
+status: {}
