@@ -197,8 +197,7 @@ helm upgrade --install zitadel zitadel/zitadel \
   --set zitadel.configmapConfig.ExternalPort=8443 \
   --set zitadel.configmapConfig.ExternalSecure=true \
   --set zitadel.configmapConfig.TLS.Enabled=true \
-  --set zitadel.configmapConfig.TLS.CertPath=/etc/zitadel-tls/tls.crt \
-  --set zitadel.configmapConfig.TLS.KeyPath=/etc/zitadel-tls/tls.key \
+  --set zitadel.serverSslCrtSecret=zitadel-tls \
   --set zitadel.secretConfig.Database.Postgres.User.Password="${DEV_POSTGRES_PASSWORD}" \
   --set zitadel.secretConfig.Database.Postgres.Admin.Password="${DEV_POSTGRES_PASSWORD}" \
   --set service.port=8443 \
@@ -307,9 +306,13 @@ kubectl -n kcp-system rollout status statefulset/kcp-etcd --timeout=120s
 
 # Apply KCP installation with dev overrides via sed
 # OIDC issuerURL must use in-cluster Zitadel URL (external domain doesn't resolve in-cluster)
+# Also uncomment caFileRef so KCP trusts the self-signed Zitadel CA
 sed \
   -e "s|kcp.demo.example.com|${DEV_KCP_DOMAIN}|g" \
   -e "s|https://auth.demo.example.com|${DEV_AUTH_INTERNAL}|g" \
+  -e 's|      # caFileRef:|      caFileRef:|g' \
+  -e 's|      #   name: zitadel-ca-bundle|        name: zitadel-ca-bundle|g' \
+  -e 's|      #   key: ca.crt|        key: ca.crt|g' \
   "${PROD_DIR}/kcp/kcp-installation.yaml" | kubectl apply -f -
 
 info "Waiting for KCP RootShard to become ready..."

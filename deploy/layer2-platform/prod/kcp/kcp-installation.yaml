@@ -137,6 +137,11 @@ spec:
       usernamePrefix: "oidc:"
       groupsClaim: "groups"
       groupsPrefix: "oidc:"
+      # TODO: For self-signed OIDC issuers, set caFileRef to a secret
+      # containing the issuer's CA certificate.
+      # caFileRef:
+      #   name: zitadel-ca-bundle
+      #   key: ca.crt
 
   # ---------------------------------------------------------------------------
   # Embedded cache server
@@ -206,6 +211,11 @@ spec:
       usernamePrefix: "oidc:"
       groupsClaim: "groups"
       groupsPrefix: "oidc:"
+      # TODO: For self-signed OIDC issuers, set caFileRef to a secret
+      # containing the issuer's CA certificate.
+      # caFileRef:
+      #   name: zitadel-ca-bundle
+      #   key: ca.crt
 
 ---
 # -----------------------------------------------------------------------------
