@@ -16,7 +16,7 @@ metadata:
   name: worker-cpu
   namespace: metal3
   labels:
-    role: workload
+    role: control-plane
     feature: cpu
 spec:
   bootMACAddress: "52:54:00:aa:bb:01"

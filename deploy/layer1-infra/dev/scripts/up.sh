@@ -319,7 +319,13 @@ WORKLOAD_KUBECONFIG="${NEO_DATADIR}/workload-kubeconfig"
 kubectl get secret workload-cluster-kubeconfig -n metal3 -o jsonpath='{.data.value}' | base64 -d > "${WORKLOAD_KUBECONFIG}"
 
 info "Labeling control plane node for kube-ovn..."
-KUBECONFIG="${WORKLOAD_KUBECONFIG}" kubectl label node worker-cpu kube-ovn/role=master --overwrite || true
+CP_NODE=$(KUBECONFIG="${WORKLOAD_KUBECONFIG}" kubectl get nodes -l node-role.kubernetes.io/control-plane -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+if [ -z "${CP_NODE}" ]; then
+  warn "Could not find control plane node. Trying first node..."
+  CP_NODE=$(KUBECONFIG="${WORKLOAD_KUBECONFIG}" kubectl get nodes -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+fi
+info "  Control plane node: ${CP_NODE}"
+KUBECONFIG="${WORKLOAD_KUBECONFIG}" kubectl label node "${CP_NODE}" kube-ovn/role=master --overwrite || true
 
 info "Installing kube-ovn CNI on workload cluster..."
 helm repo add kube-ovn https://kubeovn.github.io/kube-ovn 2>/dev/null || true

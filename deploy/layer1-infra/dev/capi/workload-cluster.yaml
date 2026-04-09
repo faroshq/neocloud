@@ -115,7 +115,7 @@ spec:
     spec:
       hostSelector:
         matchLabels:
-          feature: cpu
+          role: control-plane
       image:
         url: "http://172.16.20.10:6180/images/ubuntu-worker.img"
         checksum: "http://172.16.20.10:6180/images/ubuntu-worker.img.sha512sum"
