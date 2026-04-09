@@ -32,6 +32,10 @@ DEV_KCP_DOMAIN="kcp.${DEV_DOMAIN}"
 DEV_AUTH_DOMAIN="auth.${DEV_DOMAIN}"
 DEV_CONSOLE_DOMAIN="console.${DEV_DOMAIN}"
 
+# In-cluster Zitadel URL — used by KCP pods to reach Zitadel for OIDC discovery.
+# The external domain (DEV_AUTH_DOMAIN) doesn't resolve inside the cluster.
+DEV_AUTH_INTERNAL="http://zitadel.zitadel.svc.cluster.local:8080"
+
 # Dev passwords (deterministic for easy re-use)
 DEV_POSTGRES_PASSWORD="${DEV_POSTGRES_PASSWORD:-dev-zitadel-password}"
 DEV_ZITADEL_MASTERKEY="${DEV_ZITADEL_MASTERKEY:-$(openssl rand -hex 16 2>/dev/null || echo 'dev-masterkey-32bytes-exactly!!')}"
@@ -230,9 +234,10 @@ ETCD_EOF
 kubectl -n kcp-system rollout status statefulset/kcp-etcd --timeout=120s
 
 # Apply KCP installation with dev overrides via sed
+# OIDC issuerURL must use in-cluster Zitadel URL (external domain doesn't resolve in-cluster)
 sed \
   -e "s|kcp.demo.example.com|${DEV_KCP_DOMAIN}|g" \
-  -e "s|auth.demo.example.com|${DEV_AUTH_DOMAIN}|g" \
+  -e "s|https://auth.demo.example.com|${DEV_AUTH_INTERNAL}|g" \
   "${PROD_DIR}/kcp/kcp-installation.yaml" | kubectl apply -f -
 
 info "Waiting for KCP RootShard to become ready..."
