@@ -148,14 +148,20 @@ spec:
   # ---------------------------------------------------------------------------
   # etcd configuration
   # ---------------------------------------------------------------------------
-  # For dev/single-node: omit etcd to use the operator's default embedded etcd.
-  # For production, use etcd-druid or an external etcd cluster:
+  # Required. Points to the etcd cluster used by this shard.
+  # For production, use etcd-druid with TLS:
   #   etcd:
   #     endpoints:
   #       - https://root-client.kcp-system.svc.cluster.local:2379
   #     tlsConfig:
   #       secretRef:
   #         name: etcd-ca-tls
+  #
+  # For dev, a single-node etcd without TLS:
+  # TODO: Replace with your etcd endpoints.
+  etcd:
+    endpoints:
+      - http://kcp-etcd-0.kcp-etcd.kcp-system.svc.cluster.local:2379
 
 ---
 # -----------------------------------------------------------------------------

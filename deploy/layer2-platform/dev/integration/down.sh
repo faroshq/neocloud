@@ -47,6 +47,12 @@ kubectl delete -k "${PROD_DIR}/operators/" --ignore-not-found 2>/dev/null || tru
 info "Removing KCP installation..."
 kubectl delete -f "${PROD_DIR}/kcp/kcp-installation.yaml" --ignore-not-found 2>/dev/null || true
 
+# etcd for KCP
+info "Removing KCP etcd..."
+kubectl delete statefulset kcp-etcd -n kcp-system --ignore-not-found 2>/dev/null || true
+kubectl delete service kcp-etcd -n kcp-system --ignore-not-found 2>/dev/null || true
+kubectl delete pvc -n kcp-system -l app=kcp-etcd --ignore-not-found 2>/dev/null || true
+
 # kcp-operator
 info "Removing kcp-operator..."
 helm uninstall kcp-operator --namespace kcp-system 2>/dev/null || true

@@ -62,16 +62,27 @@ fi
 export KUBECONFIG="${WORKLOAD_KUBECONFIG}"
 info "Connected to workload cluster."
 
-# ---- Step 1: Namespaces ----------------------------------------------------
+# ---- Step 1: Prerequisites --------------------------------------------------
 
-info "Step 1/6: Creating namespaces..."
+info "Step 1/7: Installing prerequisites..."
+
+# cert-manager (needed by kcp-operator for TLS)
+if ! kubectl get crd certificates.cert-manager.io &>/dev/null; then
+  info "  Installing cert-manager..."
+  kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+  kubectl -n cert-manager wait --for=condition=Available deployment --all --timeout=300s
+else
+  info "  cert-manager already installed."
+fi
+
+# Namespaces
 kubectl apply -f "${PROD_DIR}/zitadel/namespace.yaml"
 kubectl apply -f "${PROD_DIR}/operators/namespace.yaml"
 kubectl apply -f "${PROD_DIR}/console/namespace.yaml" 2>/dev/null || true
 
 # ---- Step 2: PostgreSQL + Zitadel ------------------------------------------
 
-info "Step 2/6: Deploying PostgreSQL..."
+info "Step 2/7: Deploying PostgreSQL..."
 
 # Create postgres credentials secret (dev values)
 kubectl apply -f - <<EOF
@@ -94,7 +105,7 @@ kubectl -n zitadel rollout status statefulset/postgres --timeout=120s
 
 # ---- Step 3: Zitadel (Helm) ------------------------------------------------
 
-info "Step 3/6: Deploying Zitadel via Helm..."
+info "Step 3/7: Deploying Zitadel via Helm..."
 
 # Create masterkey secret
 kubectl create secret generic zitadel-masterkey \
@@ -119,34 +130,107 @@ helm upgrade --install zitadel zitadel/zitadel \
 
 info "Zitadel deployed at ${DEV_AUTH_DOMAIN}"
 
-# ---- Step 4: kcp-operator + KCP installation -------------------------------
+# ---- Step 4: kcp-operator + etcd + KCP installation ------------------------
 
-info "Step 4/6: Deploying KCP..."
+info "Step 4/7: Deploying KCP..."
 
-# Check if kcp-operator CRDs exist
+# Install kcp-operator
 if ! kubectl get crd rootshards.operator.kcp.io &>/dev/null; then
-  warn "kcp-operator CRDs not found. Installing kcp-operator..."
-  # The operator needs to be installed first. This is typically done via Helm
-  # or direct manifest apply. For now, check if the user has it ready.
-  if helm repo list 2>/dev/null | grep -q kcp; then
-    helm upgrade --install kcp-operator kcp/kcp-operator \
-      --namespace kcp-system --create-namespace \
-      --wait --timeout 300s
-  else
-    warn "kcp Helm repo not configured. Trying to add it..."
-    helm repo add kcp https://kcp-dev.github.io/helm-charts 2>/dev/null || true
-    helm repo update kcp
-    helm upgrade --install kcp-operator kcp/kcp-operator \
-      --namespace kcp-system --create-namespace \
-      --wait --timeout 300s
-  fi
+  info "  Installing kcp-operator..."
+  helm repo add kcp https://kcp-dev.github.io/helm-charts 2>/dev/null || true
+  helm repo update kcp
+  helm upgrade --install kcp-operator kcp/kcp-operator \
+    --namespace kcp-system --create-namespace \
+    --wait --timeout 300s
+else
+  info "  kcp-operator already installed."
 fi
+
+# Deploy single-node etcd for dev (kcp-operator requires spec.etcd)
+info "  Deploying etcd for KCP..."
+kubectl create namespace kcp-system --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f - <<'ETCD_EOF'
+apiVersion: v1
+kind: Service
+metadata:
+  name: kcp-etcd
+  namespace: kcp-system
+  labels:
+    app: kcp-etcd
+spec:
+  clusterIP: None
+  ports:
+    - name: client
+      port: 2379
+      targetPort: 2379
+    - name: peer
+      port: 2380
+      targetPort: 2380
+  selector:
+    app: kcp-etcd
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kcp-etcd
+  namespace: kcp-system
+spec:
+  serviceName: kcp-etcd
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kcp-etcd
+  template:
+    metadata:
+      labels:
+        app: kcp-etcd
+    spec:
+      containers:
+        - name: etcd
+          image: quay.io/coreos/etcd:v3.5.21
+          command:
+            - etcd
+            - --name=kcp-etcd-0
+            - --data-dir=/var/lib/etcd
+            - --listen-client-urls=http://0.0.0.0:2379
+            - --advertise-client-urls=http://kcp-etcd-0.kcp-etcd.kcp-system.svc.cluster.local:2379
+            - --listen-peer-urls=http://0.0.0.0:2380
+            - --initial-advertise-peer-urls=http://kcp-etcd-0.kcp-etcd.kcp-system.svc.cluster.local:2380
+            - --initial-cluster=kcp-etcd-0=http://kcp-etcd-0.kcp-etcd.kcp-system.svc.cluster.local:2380
+          ports:
+            - containerPort: 2379
+              name: client
+            - containerPort: 2380
+              name: peer
+          volumeMounts:
+            - name: etcd-data
+              mountPath: /var/lib/etcd
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "etcdctl endpoint health"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "etcdctl endpoint health"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: etcd-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi
+ETCD_EOF
+
+kubectl -n kcp-system rollout status statefulset/kcp-etcd --timeout=120s
 
 # Apply KCP installation with dev overrides via sed
 sed \
   -e "s|kcp.demo.example.com|${DEV_KCP_DOMAIN}|g" \
   -e "s|auth.demo.example.com|${DEV_AUTH_DOMAIN}|g" \
-  -e "s|replicas: 2|replicas: 1|g" \
   "${PROD_DIR}/kcp/kcp-installation.yaml" | kubectl apply -f -
 
 info "Waiting for KCP RootShard to become ready..."
@@ -163,7 +247,7 @@ done
 
 # ---- Step 5: Platform workspace + APIs -------------------------------------
 
-info "Step 5/6: Setting up platform workspace and APIs..."
+info "Step 5/7: Setting up platform workspace and APIs..."
 
 # Extract KCP admin kubeconfig
 KCP_KUBECONFIG=""
@@ -192,7 +276,7 @@ fi
 
 # ---- Step 6: Operators (optional — skip if images not built) ----------------
 
-info "Step 6/6: Deploying operators..."
+info "Step 6/7: Deploying operators..."
 
 # Check if operator images are available before applying
 if kubectl apply -k "${PROD_DIR}/operators/" --dry-run=client &>/dev/null 2>&1; then
