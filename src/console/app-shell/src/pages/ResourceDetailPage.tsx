@@ -111,30 +111,30 @@ export const ResourceDetailPage: React.FC<ResourceDetailPageProps> = ({
   return (
     <Box>
       {/* Header */}
-      <Box sx={{ mb: 4 }}>
+      <Box sx={{ mb: 2.5 }}>
         <Button
-          startIcon={<ArrowBackRoundedIcon sx={{ fontSize: 16 }} />}
+          startIcon={<ArrowBackRoundedIcon sx={{ fontSize: 14 }} />}
           onClick={() => navigate(resource.path)}
           sx={{
             color: '#71717a',
-            fontSize: '0.8125rem',
-            mb: 1.5,
+            fontSize: '0.625rem',
+            mb: 1,
             px: 0,
             '&:hover': { color: '#fafafa', bgcolor: 'transparent' },
           }}
         >
           {resource.displayNamePlural}
         </Button>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
           <Typography variant="h5">{item.metadata.name}</Typography>
           <Box
             sx={{
               display: 'flex',
               alignItems: 'center',
-              gap: 0.75,
-              px: 1.25,
-              py: 0.375,
-              borderRadius: 1.5,
+              gap: 0.5,
+              px: 1,
+              py: 0.25,
+              borderRadius: 1,
               bgcolor: alpha(statusColor, 0.1),
               border: '1px solid',
               borderColor: alpha(statusColor, 0.2),
@@ -142,8 +142,8 @@ export const ResourceDetailPage: React.FC<ResourceDetailPageProps> = ({
           >
             <Box
               sx={{
-                width: 6,
-                height: 6,
+                width: 5,
+                height: 5,
                 borderRadius: '50%',
                 bgcolor: statusColor,
                 animation:
@@ -154,7 +154,7 @@ export const ResourceDetailPage: React.FC<ResourceDetailPageProps> = ({
             />
             <Typography
               sx={{
-                fontSize: '0.75rem',
+                fontSize: '0.625rem',
                 fontWeight: 600,
                 color: statusColor,
               }}
@@ -164,7 +164,7 @@ export const ResourceDetailPage: React.FC<ResourceDetailPageProps> = ({
           </Box>
         </Box>
         {item.metadata.creationTimestamp && (
-          <Typography sx={{ fontSize: '0.75rem', color: '#52525b', mt: 0.5 }}>
+          <Typography sx={{ fontSize: '0.625rem', color: '#52525b', mt: 0.25 }}>
             Created {new Date(item.metadata.creationTimestamp as string).toLocaleString()}
           </Typography>
         )}
@@ -187,13 +187,13 @@ export const ResourceDetailPage: React.FC<ResourceDetailPageProps> = ({
               bgcolor: 'rgba(255,255,255,0.02)',
             }}
           >
-            <Typography sx={{ fontSize: '0.8125rem', fontWeight: 600 }}>
+            <Typography sx={{ fontSize: '0.6875rem', fontWeight: 600 }}>
               Specification
             </Typography>
           </Box>
           <Box sx={{ p: 2.5 }}>
             {specEntries.length === 0 ? (
-              <Typography sx={{ fontSize: '0.8125rem', color: '#52525b' }}>
+              <Typography sx={{ fontSize: '0.6875rem', color: '#52525b' }}>
                 No specification data
               </Typography>
             ) : (
@@ -215,7 +215,7 @@ export const ResourceDetailPage: React.FC<ResourceDetailPageProps> = ({
                 bgcolor: 'rgba(255,255,255,0.02)',
               }}
             >
-              <Typography sx={{ fontSize: '0.8125rem', fontWeight: 600 }}>
+              <Typography sx={{ fontSize: '0.6875rem', fontWeight: 600 }}>
                 Status
               </Typography>
             </Box>
@@ -243,7 +243,7 @@ export const ResourceDetailPage: React.FC<ResourceDetailPageProps> = ({
               bgcolor: 'rgba(255,255,255,0.02)',
             }}
           >
-            <Typography sx={{ fontSize: '0.8125rem', fontWeight: 600 }}>
+            <Typography sx={{ fontSize: '0.6875rem', fontWeight: 600 }}>
               Conditions
             </Typography>
           </Box>
@@ -262,7 +262,7 @@ export const ResourceDetailPage: React.FC<ResourceDetailPageProps> = ({
                   <TableRow key={i}>
                     <TableCell>
                       <Typography
-                        sx={{ fontSize: '0.8125rem', fontWeight: 500 }}
+                        sx={{ fontSize: '0.6875rem', fontWeight: 500 }}
                       >
                         {c.type}
                       </Typography>
@@ -285,7 +285,7 @@ export const ResourceDetailPage: React.FC<ResourceDetailPageProps> = ({
                           }}
                         />
                         <Typography
-                          sx={{ fontSize: '0.8125rem', color: '#a1a1aa' }}
+                          sx={{ fontSize: '0.6875rem', color: '#a1a1aa' }}
                         >
                           {c.status}
                         </Typography>
@@ -293,14 +293,14 @@ export const ResourceDetailPage: React.FC<ResourceDetailPageProps> = ({
                     </TableCell>
                     <TableCell>
                       <Typography
-                        sx={{ fontSize: '0.8125rem', color: '#a1a1aa' }}
+                        sx={{ fontSize: '0.6875rem', color: '#a1a1aa' }}
                       >
                         {c.reason}
                       </Typography>
                     </TableCell>
                     <TableCell>
                       <Typography
-                        sx={{ fontSize: '0.8125rem', color: '#71717a' }}
+                        sx={{ fontSize: '0.6875rem', color: '#71717a' }}
                       >
                         {c.message}
                       </Typography>
@@ -332,12 +332,12 @@ const InfoRow: React.FC<{
       },
     }}
   >
-    <Typography sx={{ fontSize: '0.8125rem', color: '#71717a' }}>
+    <Typography sx={{ fontSize: '0.6875rem', color: '#71717a' }}>
       {label}
     </Typography>
     <Typography
       sx={{
-        fontSize: '0.8125rem',
+        fontSize: '0.6875rem',
         fontWeight: 500,
         fontFamily: mono ? 'monospace' : 'inherit',
         color: '#d4d4d8',

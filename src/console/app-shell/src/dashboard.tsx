@@ -29,9 +29,9 @@ const StatCard: React.FC<StatCardProps> = ({
   <Paper
     onClick={onClick}
     sx={{
-      p: 2.5,
-      flex: '1 1 200px',
-      minWidth: 180,
+      p: 1.75,
+      flex: '1 1 180px',
+      minWidth: 160,
       cursor: 'pointer',
       position: 'relative',
       overflow: 'hidden',
@@ -59,15 +59,15 @@ const StatCard: React.FC<StatCardProps> = ({
       sx={{
         display: 'flex',
         alignItems: 'center',
-        gap: 1.5,
-        mb: 2,
+        gap: 1,
+        mb: 1.25,
       }}
     >
       <Box
         sx={{
-          width: 36,
-          height: 36,
-          borderRadius: 1.5,
+          width: 28,
+          height: 28,
+          borderRadius: 1,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -78,18 +78,18 @@ const StatCard: React.FC<StatCardProps> = ({
         {icon}
       </Box>
       <Typography
-        sx={{ fontSize: '0.8125rem', fontWeight: 500, color: '#a1a1aa' }}
+        sx={{ fontSize: '0.6875rem', fontWeight: 500, color: '#a1a1aa' }}
       >
         {title}
       </Typography>
     </Box>
-    <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+    <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75 }}>
       {count === null ? (
-        <Skeleton width={48} height={40} />
+        <Skeleton width={36} height={28} />
       ) : (
         <Typography
           sx={{
-            fontSize: '2rem',
+            fontSize: '1.5rem',
             fontWeight: 700,
             letterSpacing: '-0.03em',
             lineHeight: 1,
@@ -98,7 +98,7 @@ const StatCard: React.FC<StatCardProps> = ({
           {count}
         </Typography>
       )}
-      <Typography sx={{ fontSize: '0.75rem', color: '#52525b' }}>
+      <Typography sx={{ fontSize: '0.625rem', color: '#52525b' }}>
         {subtitle}
       </Typography>
     </Box>
@@ -121,14 +121,14 @@ const QuickAction: React.FC<QuickActionProps> = ({
   <Box
     onClick={onClick}
     sx={{
-      p: 2,
-      borderRadius: 2,
+      p: 1.25,
+      borderRadius: 1.5,
       border: '1px solid rgba(255,255,255,0.06)',
       bgcolor: 'rgba(255,255,255,0.02)',
       cursor: 'pointer',
       display: 'flex',
       alignItems: 'center',
-      gap: 2,
+      gap: 1.25,
       transition: 'all 0.2s ease',
       '&:hover': {
         borderColor: 'rgba(255,255,255,0.12)',
@@ -139,9 +139,9 @@ const QuickAction: React.FC<QuickActionProps> = ({
   >
     <Box
       sx={{
-        width: 36,
-        height: 36,
-        borderRadius: 1.5,
+        width: 26,
+        height: 26,
+        borderRadius: 1,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -151,18 +151,18 @@ const QuickAction: React.FC<QuickActionProps> = ({
     >
       {icon}
     </Box>
-    <Box sx={{ flex: 1 }}>
-      <Typography sx={{ fontSize: '0.8125rem', fontWeight: 600 }}>
+    <Box sx={{ flex: 1, minWidth: 0 }}>
+      <Typography sx={{ fontSize: '0.6875rem', fontWeight: 600 }}>
         {title}
       </Typography>
-      <Typography sx={{ fontSize: '0.75rem', color: '#52525b' }}>
+      <Typography sx={{ fontSize: '0.625rem', color: '#52525b' }}>
         {description}
       </Typography>
     </Box>
     <ArrowForwardRoundedIcon
       className="arrow"
       sx={{
-        fontSize: 16,
+        fontSize: 14,
         color: '#52525b',
         opacity: 0,
         transform: 'translateX(-4px)',
@@ -248,13 +248,13 @@ export const Dashboard: React.FC = () => {
 
   return (
     <Box>
-      <Box sx={{ mb: 4 }}>
+      <Box sx={{ mb: 2.5 }}>
         <Typography
           sx={{
-            fontSize: '0.8125rem',
+            fontSize: '0.625rem',
             color: '#52525b',
             fontWeight: 500,
-            mb: 0.5,
+            mb: 0.25,
           }}
         >
           {greeting}
@@ -266,20 +266,20 @@ export const Dashboard: React.FC = () => {
 
       {/* Stat cards grouped by API group */}
       {apiGroups.map((group) => (
-        <Box key={group.group} sx={{ mb: 4 }}>
+        <Box key={group.group} sx={{ mb: 2.5 }}>
           <Typography
             sx={{
-              fontSize: '0.6875rem',
+              fontSize: '0.5625rem',
               fontWeight: 700,
               letterSpacing: '0.1em',
               textTransform: 'uppercase',
               color: '#3f3f46',
-              mb: 1.5,
+              mb: 1,
             }}
           >
             {group.label}
           </Typography>
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+          <Box sx={{ display: 'flex', gap: 1.25, flexWrap: 'wrap' }}>
             {group.resources.map((resource) => {
               const Icon = resource.icon;
               const count = getCount(group.group, resource.plural);
@@ -289,7 +289,7 @@ export const Dashboard: React.FC = () => {
                   title={resource.displayNamePlural}
                   count={count}
                   subtitle={count !== null ? 'total' : ''}
-                  icon={<Icon sx={{ fontSize: 18, color: 'white' }} />}
+                  icon={<Icon sx={{ fontSize: 15, color: 'white' }} />}
                   gradient={group.gradient}
                   accentColor={group.accentColor}
                   onClick={() => navigate(resource.path)}
@@ -303,10 +303,10 @@ export const Dashboard: React.FC = () => {
       {/* Quick actions */}
       <Typography
         sx={{
-          fontSize: '0.8125rem',
+          fontSize: '0.6875rem',
           fontWeight: 600,
           color: '#71717a',
-          mb: 1.5,
+          mb: 1,
           letterSpacing: '0.02em',
         }}
       >
@@ -315,14 +315,14 @@ export const Dashboard: React.FC = () => {
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-          gap: 1.5,
+          gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+          gap: 1,
         }}
       >
         <QuickAction
           title="Create Virtual Machine"
           description="Launch a new compute instance"
-          icon={<AddRoundedIcon sx={{ fontSize: 18 }} />}
+          icon={<AddRoundedIcon sx={{ fontSize: 15 }} />}
           onClick={() => navigate('/vm/create')}
         />
         {apiGroups.map((group) =>
@@ -333,7 +333,7 @@ export const Dashboard: React.FC = () => {
                 key={resource.plural}
                 title={`View ${resource.displayNamePlural}`}
                 description={`Manage ${resource.displayNamePlural.toLowerCase()}`}
-                icon={<Icon sx={{ fontSize: 18 }} />}
+                icon={<Icon sx={{ fontSize: 15 }} />}
                 onClick={() => navigate(resource.path)}
               />
             );

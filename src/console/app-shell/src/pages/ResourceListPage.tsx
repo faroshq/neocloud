@@ -98,10 +98,10 @@ export const ResourceListPage: React.FC<ResourceListPageProps> = ({
 
   return (
     <Box>
-      <Box sx={{ mb: 3 }}>
+      <Box sx={{ mb: 2 }}>
         <Typography variant="h5">{resource.displayNamePlural}</Typography>
         <Typography
-          sx={{ fontSize: '0.8125rem', color: '#52525b', mt: 0.25 }}
+          sx={{ fontSize: '0.6875rem', color: '#52525b', mt: 0.25 }}
         >
           {items.length} {items.length === 1 ? resource.displayName.toLowerCase() : resource.displayNamePlural.toLowerCase()}
         </Typography>
@@ -112,14 +112,14 @@ export const ResourceListPage: React.FC<ResourceListPageProps> = ({
         size="small"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        sx={{ mb: 2, maxWidth: 320 }}
+        sx={{ mb: 1.5, maxWidth: 280 }}
         fullWidth
         slotProps={{
           input: {
             startAdornment: (
               <InputAdornment position="start">
                 <SearchRoundedIcon
-                  sx={{ fontSize: 18, color: '#52525b' }}
+                  sx={{ fontSize: 14, color: '#52525b' }}
                 />
               </InputAdornment>
             ),
@@ -127,7 +127,7 @@ export const ResourceListPage: React.FC<ResourceListPageProps> = ({
         }}
       />
 
-      <TableContainer component={Paper} sx={{ borderRadius: 2 }}>
+      <TableContainer component={Paper} sx={{ borderRadius: 1.5 }}>
         <Table>
           <TableHead>
             <TableRow>
@@ -143,28 +143,28 @@ export const ResourceListPage: React.FC<ResourceListPageProps> = ({
             {filtered.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={3 + resource.columns.length} align="center">
-                  <Box sx={{ py: 8, px: 4 }}>
+                  <Box sx={{ py: 5, px: 3 }}>
                     <Box
                       sx={{
-                        width: 56,
-                        height: 56,
-                        borderRadius: 3,
+                        width: 44,
+                        height: 44,
+                        borderRadius: 2,
                         bgcolor: 'rgba(255,255,255,0.04)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         mx: 'auto',
-                        mb: 2,
+                        mb: 1.5,
                       }}
                     >
-                      <Icon sx={{ fontSize: 28, color: '#3f3f46' }} />
+                      <Icon sx={{ fontSize: 22, color: '#3f3f46' }} />
                     </Box>
                     <Typography
                       sx={{
                         color: '#71717a',
-                        fontSize: '0.875rem',
+                        fontSize: '0.75rem',
                         fontWeight: 500,
-                        mb: 0.5,
+                        mb: 0.25,
                       }}
                     >
                       {search
@@ -172,7 +172,7 @@ export const ResourceListPage: React.FC<ResourceListPageProps> = ({
                         : `No ${resource.displayNamePlural.toLowerCase()} found`}
                     </Typography>
                     <Typography
-                      sx={{ color: '#3f3f46', fontSize: '0.8125rem' }}
+                      sx={{ color: '#3f3f46', fontSize: '0.6875rem' }}
                     >
                       {search
                         ? 'Try a different search term'
@@ -203,7 +203,7 @@ export const ResourceListPage: React.FC<ResourceListPageProps> = ({
                   >
                     <TableCell>
                       <Typography
-                        sx={{ fontWeight: 600, fontSize: '0.8125rem' }}
+                        sx={{ fontWeight: 600, fontSize: '0.6875rem' }}
                       >
                         {item.metadata.name}
                       </Typography>
@@ -218,8 +218,8 @@ export const ResourceListPage: React.FC<ResourceListPageProps> = ({
                       >
                         <Box
                           sx={{
-                            width: 7,
-                            height: 7,
+                            width: 6,
+                            height: 6,
                             borderRadius: '50%',
                             bgcolor: statusColor,
                             boxShadow: `0 0 6px ${alpha(statusColor, 0.4)}`,
@@ -231,7 +231,7 @@ export const ResourceListPage: React.FC<ResourceListPageProps> = ({
                         />
                         <Typography
                           sx={{
-                            fontSize: '0.8125rem',
+                            fontSize: '0.6875rem',
                             fontWeight: 500,
                             color: statusColor,
                           }}
@@ -244,7 +244,7 @@ export const ResourceListPage: React.FC<ResourceListPageProps> = ({
                       <TableCell key={col.header}>
                         <Typography
                           sx={{
-                            fontSize: '0.8125rem',
+                            fontSize: '0.6875rem',
                             color: '#a1a1aa',
                             fontFamily: col.mono ? 'monospace' : 'inherit',
                           }}
@@ -261,7 +261,7 @@ export const ResourceListPage: React.FC<ResourceListPageProps> = ({
                     <TableCell>
                       <Typography
                         sx={{
-                          fontSize: '0.8125rem',
+                          fontSize: '0.6875rem',
                           color: '#71717a',
                         }}
                       >
