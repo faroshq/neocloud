@@ -563,7 +563,7 @@ func (h *Handler) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "upstream token refresh failed", http.StatusBadGateway)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
@@ -597,7 +597,7 @@ func (h *Handler) HandleJWKS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to fetch JWKS", http.StatusBadGateway)
 		return
 	}
-	defer jwksResp.Body.Close()
+	defer func() { _ = jwksResp.Body.Close() }()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(jwksResp.StatusCode)

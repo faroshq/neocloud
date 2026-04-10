@@ -5,3 +5,4 @@ project/zitadel-compose/certs/*.key
 .seed-output
 bin/
 .claude/settings.json
+src/platform/hack/tools/*

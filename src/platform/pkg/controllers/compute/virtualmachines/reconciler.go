@@ -779,7 +779,7 @@ func resolveCloudInitUserData(ctx context.Context, c client.Client, vm *computev
 				data, ok, _ = unstructured.NestedString(secret.Object, "stringData", "userData")
 			}
 			if !ok || data == "" {
-				return "", fmt.Errorf("Secret %s/%s does not contain 'userData' key", ref.Secret.Namespace, ref.Secret.Name)
+				return "", fmt.Errorf("secret %s/%s does not contain 'userData' key", ref.Secret.Namespace, ref.Secret.Name)
 			}
 			userDataTemplate = data
 		}

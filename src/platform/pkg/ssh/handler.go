@@ -145,7 +145,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "failed to connect to VM SSH port")
 		return
 	}
-	defer vmWS.Close()
+	defer func() { _ = vmWS.Close() }()
 
 	// Upgrade client connection to WebSocket.
 	clientWS, err := h.upgrader.Upgrade(w, r, nil)
@@ -153,7 +153,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error(err, "WebSocket upgrade failed")
 		return // Upgrade already wrote the error response.
 	}
-	defer clientWS.Close()
+	defer func() { _ = clientWS.Close() }()
 
 	h.logger.Info("SSH tunnel established", "user", username, "vm", vmName, "kubevirtVM", kvVMName)
 
@@ -211,7 +211,7 @@ func (h *Handler) dialVMPortforward(kvVMName string, port int) (*websocket.Conn,
 	if err != nil {
 		if resp != nil {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return nil, fmt.Errorf("dialing portforward WebSocket (status=%d, body=%s): %w", resp.StatusCode, string(body), err)
 		}
 		return nil, fmt.Errorf("dialing portforward WebSocket: %w", err)
@@ -238,7 +238,7 @@ func (h *Handler) bridgeWebSockets(clientWS, vmWS *websocket.Conn) {
 				break
 			}
 		}
-		vmWS.Close()
+		_ = vmWS.Close()
 	}()
 
 	// VM → Client.
@@ -253,7 +253,7 @@ func (h *Handler) bridgeWebSockets(clientWS, vmWS *websocket.Conn) {
 				break
 			}
 		}
-		clientWS.Close()
+		_ = clientWS.Close()
 	}()
 
 	wg.Wait()

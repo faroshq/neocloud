@@ -15,6 +15,11 @@ KCP_APIGEN_BIN := apigen
 KCP_APIGEN_GEN := $(PLATFORM_DIR)/hack/tools/$(KCP_APIGEN_BIN)-$(KCP_APIGEN_VER)
 export KCP_APIGEN_GEN
 
+GOLANGCI_LINT_VER := v2.11.4
+GOLANGCI_LINT_BIN := golangci-lint
+GOLANGCI_LINT := $(PLATFORM_DIR)/hack/tools/$(GOLANGCI_LINT_BIN)-$(GOLANGCI_LINT_VER)
+export GOLANGCI_LINT
+
 GO_INSTALL := $(PLATFORM_DIR)/hack/go-install.sh
 TOOLS_GOBIN_DIR := $(abspath $(PLATFORM_DIR)/hack/tools)
 
@@ -61,13 +66,16 @@ verify-codegen: codegen ## Verify codegen is up to date
 
 # --- Tools ---
 
-tools: $(CONTROLLER_GEN) $(KCP_APIGEN_GEN) ## Install all dev tools
+tools: $(CONTROLLER_GEN) $(KCP_APIGEN_GEN) $(GOLANGCI_LINT) ## Install all dev tools
 
 $(CONTROLLER_GEN):
 	GOBIN=$(TOOLS_GOBIN_DIR) $(GO_INSTALL) sigs.k8s.io/controller-tools/cmd/controller-gen $(CONTROLLER_GEN_BIN) $(CONTROLLER_GEN_VER)
 
 $(KCP_APIGEN_GEN):
 	GOBIN=$(TOOLS_GOBIN_DIR) $(GO_INSTALL) github.com/kcp-dev/sdk/cmd/apigen $(KCP_APIGEN_BIN) $(KCP_APIGEN_VER)
+
+$(GOLANGCI_LINT):
+	GOBIN=$(TOOLS_GOBIN_DIR) $(GO_INSTALL) github.com/golangci/golangci-lint/v2/cmd/golangci-lint $(GOLANGCI_LINT_BIN) $(GOLANGCI_LINT_VER)
 
 # --- Standard targets ---
 
@@ -84,8 +92,8 @@ generate:
 test:
 	cd $(PLATFORM_DIR) && go test ./... -count=1
 
-lint:
-	cd $(PLATFORM_DIR) && golangci-lint run ./...
+lint: $(GOLANGCI_LINT)
+	cd $(PLATFORM_DIR) && $(abspath $(GOLANGCI_LINT)) run ./...
 
 tidy:
 	cd $(PLATFORM_DIR) && go mod tidy

@@ -291,7 +291,7 @@ func runOIDCLogin(ctx context.Context, hubURL string, insecure bool) error {
 	if err != nil {
 		return fmt.Errorf("starting callback listener: %w", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	port := listener.Addr().(*net.TCPAddr).Port
 	callbackURL := fmt.Sprintf("http://127.0.0.1:%d/callback", port)
@@ -338,7 +338,7 @@ func runOIDCLogin(ctx context.Context, hubURL string, insecure bool) error {
 			errCh <- err
 		}
 	}()
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 
 	authorizeURL := fmt.Sprintf("%s/auth/authorize?redirect_uri=%s", hubURL, callbackURL)
 	fmt.Printf("Opening browser for OIDC login...\n")
@@ -738,12 +738,12 @@ func runSSHProxy(ctx context.Context, hubURL, vmName, token string, insecure boo
 	if err != nil {
 		if resp != nil {
 			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return fmt.Errorf("SSH proxy connection failed (status %d): %s", resp.StatusCode, string(body))
 		}
 		return fmt.Errorf("SSH proxy connection failed: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	errCh := make(chan error, 2)
 
