@@ -181,8 +181,8 @@ export const ResourceDetailPage: React.FC<ResourceDetailPageProps> = ({
         <Paper sx={{ p: 0, overflow: 'hidden' }}>
           <Box
             sx={{
-              px: 2.5,
-              py: 1.5,
+              px: 2,
+              py: 1,
               borderBottom: '1px solid rgba(255,255,255,0.06)',
               bgcolor: 'rgba(255,255,255,0.02)',
             }}
@@ -191,7 +191,7 @@ export const ResourceDetailPage: React.FC<ResourceDetailPageProps> = ({
               Specification
             </Typography>
           </Box>
-          <Box sx={{ p: 2.5 }}>
+          <Box sx={{ p: 2 }}>
             {specEntries.length === 0 ? (
               <Typography sx={{ fontSize: '0.6875rem', color: '#52525b' }}>
                 No specification data
@@ -219,7 +219,7 @@ export const ResourceDetailPage: React.FC<ResourceDetailPageProps> = ({
                 Status
               </Typography>
             </Box>
-            <Box sx={{ p: 2.5 }}>
+            <Box sx={{ p: 2 }}>
               {flattenObject(
                 Object.fromEntries(
                   Object.entries(status).filter(([k]) => k !== 'conditions'),
@@ -237,8 +237,8 @@ export const ResourceDetailPage: React.FC<ResourceDetailPageProps> = ({
         <Paper sx={{ mt: 2, p: 0, overflow: 'hidden' }}>
           <Box
             sx={{
-              px: 2.5,
-              py: 1.5,
+              px: 2,
+              py: 1,
               borderBottom: '1px solid rgba(255,255,255,0.06)',
               bgcolor: 'rgba(255,255,255,0.02)',
             }}
@@ -326,18 +326,18 @@ const InfoRow: React.FC<{
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
-      py: 0.75,
+      py: 0.5,
       '&:not(:last-child)': {
         borderBottom: '1px solid rgba(255,255,255,0.04)',
       },
     }}
   >
-    <Typography sx={{ fontSize: '0.6875rem', color: '#71717a' }}>
+    <Typography sx={{ fontSize: '0.625rem', color: '#71717a' }}>
       {label}
     </Typography>
     <Typography
       sx={{
-        fontSize: '0.6875rem',
+        fontSize: '0.625rem',
         fontWeight: 500,
         fontFamily: mono ? 'monospace' : 'inherit',
         color: '#d4d4d8',

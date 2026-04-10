@@ -1,6 +1,8 @@
 module github.com/faroshq/kcp-ref-arch/project/platform
 
-go 1.26
+go 1.25.0
+
+toolchain go1.26.0
 
 require (
 	github.com/coreos/go-oidc v2.3.0+incompatible
@@ -11,7 +13,6 @@ require (
 	github.com/kcp-dev/sdk v0.30.1
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/oauth2 v0.35.0
-	k8s.io/api v0.35.3
 	k8s.io/apiextensions-apiserver v0.35.3
 	k8s.io/apimachinery v0.35.3
 	k8s.io/apiserver v0.35.3
@@ -21,6 +22,8 @@ require (
 	sigs.k8s.io/multicluster-runtime v0.23.1
 	sigs.k8s.io/yaml v1.6.0
 )
+
+require k8s.io/api v0.35.3 // indirect
 
 // KCP kubernetes forks - required for cluster-aware API machinery
 replace (
@@ -93,7 +96,7 @@ require (
 	github.com/google/gnostic-models v0.7.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
+	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus v1.0.1 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2 // indirect
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0 // indirect
@@ -154,7 +157,6 @@ require (
 	golang.org/x/crypto v0.47.0 // indirect
 	golang.org/x/exp v0.0.0-20251125195548-87e1e737ad39 // indirect
 	golang.org/x/net v0.49.0 // indirect
-	golang.org/x/oauth2 v0.35.0
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/term v0.39.0 // indirect

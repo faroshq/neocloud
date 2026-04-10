@@ -32,9 +32,20 @@ jobs:
       - name: Test platform
         run: make test
 
-      - uses: golangci/golangci-lint-action@v6
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/platform/go.mod
+          cache-dependency-path: src/platform/go.sum
+
+      - uses: golangci/golangci-lint-action@v7
         with:
           working-directory: src/platform
+          version: v2.11.4
 
   docker-platform:
     runs-on: ubuntu-latest
