@@ -31,7 +31,7 @@ import {
 import { discoverApiGroups } from './api';
 import { apiGroups } from './resources';
 
-const DRAWER_WIDTH = 232;
+const DRAWER_WIDTH = 200;
 
 const theme = createTheme({
   palette: {
@@ -53,23 +53,58 @@ const theme = createTheme({
   },
   typography: {
     fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, sans-serif',
-    h4: { fontWeight: 700, letterSpacing: '-0.025em' },
-    h5: { fontWeight: 650, letterSpacing: '-0.02em' },
-    h6: { fontWeight: 600, letterSpacing: '-0.01em' },
+    fontSize: 12,
+    htmlFontSize: 16,
+    h1: { fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.025em' },
+    h2: { fontSize: '1.375rem', fontWeight: 700, letterSpacing: '-0.025em' },
+    h3: { fontSize: '1.25rem', fontWeight: 700, letterSpacing: '-0.025em' },
+    h4: { fontSize: '1.125rem', fontWeight: 700, letterSpacing: '-0.025em' },
+    h5: { fontSize: '1rem', fontWeight: 650, letterSpacing: '-0.02em' },
+    h6: { fontSize: '0.875rem', fontWeight: 600, letterSpacing: '-0.01em' },
+    body1: { fontSize: '0.75rem' },
+    body2: { fontSize: '0.6875rem' },
+    button: { fontSize: '0.6875rem' },
+    caption: { fontSize: '0.625rem' },
+    subtitle1: { fontSize: '0.75rem' },
+    subtitle2: { fontSize: '0.6875rem' },
   },
-  shape: { borderRadius: 10 },
+  shape: { borderRadius: 8 },
   components: {
     MuiButton: {
+      defaultProps: { size: 'small' },
       styleOverrides: {
         root: {
           textTransform: 'none' as const,
           fontWeight: 600,
-          borderRadius: 8,
-          fontSize: '0.8125rem',
+          borderRadius: 6,
+          fontSize: '0.6875rem',
+          padding: '4px 10px',
+          minHeight: 28,
+        },
+        sizeSmall: {
+          padding: '3px 8px',
+          fontSize: '0.6875rem',
+          minHeight: 26,
+        },
+        sizeLarge: {
+          padding: '6px 14px',
+          fontSize: '0.75rem',
+          minHeight: 32,
         },
         contained: {
           boxShadow: 'none',
           '&:hover': { boxShadow: 'none' },
+        },
+      },
+    },
+    MuiIconButton: {
+      defaultProps: { size: 'small' },
+      styleOverrides: {
+        root: {
+          padding: 4,
+        },
+        sizeSmall: {
+          padding: 3,
         },
       },
     },
@@ -81,50 +116,184 @@ const theme = createTheme({
         },
       },
     },
+    MuiTable: {
+      defaultProps: { size: 'small' },
+    },
     MuiTableCell: {
       styleOverrides: {
         root: {
           borderColor: 'rgba(255,255,255,0.06)',
-          padding: '12px 16px',
+          padding: '6px 10px',
+          fontSize: '0.6875rem',
         },
         head: {
           fontWeight: 600,
           color: '#71717a',
-          fontSize: '0.6875rem',
+          fontSize: '0.5625rem',
           letterSpacing: '0.05em',
           textTransform: 'uppercase' as const,
           background: 'rgba(255,255,255,0.02)',
+          padding: '6px 10px',
+        },
+        sizeSmall: {
+          padding: '6px 10px',
         },
       },
     },
     MuiTextField: {
+      defaultProps: { size: 'small' },
       styleOverrides: {
         root: {
           '& .MuiOutlinedInput-root': {
-            borderRadius: 8,
+            borderRadius: 6,
+            fontSize: '0.6875rem',
             '& fieldset': { borderColor: 'rgba(255,255,255,0.1)' },
             '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
           },
+          '& .MuiInputBase-input': {
+            padding: '6px 10px',
+            fontSize: '0.6875rem',
+          },
+          '& .MuiInputLabel-root': {
+            fontSize: '0.6875rem',
+          },
+        },
+      },
+    },
+    MuiInputBase: {
+      styleOverrides: {
+        root: {
+          fontSize: '0.6875rem',
+        },
+        input: {
+          fontSize: '0.6875rem',
+        },
+      },
+    },
+    MuiOutlinedInput: {
+      styleOverrides: {
+        input: {
+          padding: '6px 10px',
+        },
+      },
+    },
+    MuiSelect: {
+      defaultProps: { size: 'small' },
+    },
+    MuiMenuItem: {
+      styleOverrides: {
+        root: {
+          fontSize: '0.6875rem',
+          minHeight: 28,
+        },
+      },
+    },
+    MuiListItemButton: {
+      styleOverrides: {
+        root: {
+          paddingTop: 4,
+          paddingBottom: 4,
+        },
+      },
+    },
+    MuiListItemText: {
+      styleOverrides: {
+        primary: {
+          fontSize: '0.6875rem',
+        },
+        secondary: {
+          fontSize: '0.625rem',
+        },
+      },
+    },
+    MuiListItemIcon: {
+      styleOverrides: {
+        root: {
+          minWidth: 28,
         },
       },
     },
     MuiDialog: {
       styleOverrides: {
         paper: {
-          borderRadius: 16,
+          borderRadius: 12,
           border: '1px solid rgba(255,255,255,0.08)',
           backgroundImage: 'none',
         },
       },
     },
+    MuiDialogTitle: {
+      styleOverrides: {
+        root: {
+          fontSize: '0.875rem',
+          padding: '12px 16px',
+        },
+      },
+    },
+    MuiDialogContent: {
+      styleOverrides: {
+        root: {
+          padding: '12px 16px',
+        },
+      },
+    },
+    MuiDialogActions: {
+      styleOverrides: {
+        root: {
+          padding: '8px 12px',
+        },
+      },
+    },
     MuiChip: {
+      defaultProps: { size: 'small' },
       styleOverrides: {
         root: {
           fontWeight: 500,
-          fontSize: '0.75rem',
-          borderRadius: 6,
+          fontSize: '0.625rem',
+          borderRadius: 5,
+          height: 20,
         },
       },
+    },
+    MuiTab: {
+      styleOverrides: {
+        root: {
+          fontSize: '0.6875rem',
+          minHeight: 32,
+          padding: '4px 12px',
+          textTransform: 'none' as const,
+        },
+      },
+    },
+    MuiTabs: {
+      styleOverrides: {
+        root: {
+          minHeight: 32,
+        },
+      },
+    },
+    MuiTooltip: {
+      styleOverrides: {
+        tooltip: {
+          fontSize: '0.625rem',
+        },
+      },
+    },
+    MuiFormControlLabel: {
+      styleOverrides: {
+        label: {
+          fontSize: '0.6875rem',
+        },
+      },
+    },
+    MuiSwitch: {
+      defaultProps: { size: 'small' },
+    },
+    MuiCheckbox: {
+      defaultProps: { size: 'small' },
+    },
+    MuiRadio: {
+      defaultProps: { size: 'small' },
     },
   },
 });
@@ -374,8 +543,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         >
           <Box
             sx={{
-              px: 2.5,
-              py: 2.5,
+              px: 2,
+              py: 1.75,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -385,16 +554,16 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             <NeoCloudLogo />
           </Box>
 
-          <Box sx={{ flex: 1, overflow: 'auto', px: 1.5, mt: 0.5 }}>
+          <Box sx={{ flex: 1, overflow: 'auto', px: 1, mt: 0.25 }}>
             {navSections.map((section, idx) => (
               <React.Fragment key={section.label}>
-                {idx > 0 && <Box sx={{ my: 1.5 }} />}
+                {idx > 0 && <Box sx={{ my: 1 }} />}
                 <Typography
                   sx={{
                     px: 1,
-                    mb: 0.5,
+                    mb: 0.25,
                     color: '#3f3f46',
-                    fontSize: '0.625rem',
+                    fontSize: '0.5625rem',
                     fontWeight: 700,
                     letterSpacing: '0.1em',
                     textTransform: 'uppercase',
@@ -411,10 +580,10 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                         key={item.path}
                         onClick={() => navigate(item.path)}
                         sx={{
-                          borderRadius: '8px',
-                          mb: 0.25,
-                          py: 0.875,
-                          px: 1.25,
+                          borderRadius: '6px',
+                          mb: 0.125,
+                          py: 0.5,
+                          px: 1,
                           position: 'relative',
                           bgcolor: active
                             ? alpha('#818cf8', 0.1)
@@ -433,7 +602,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                                 left: 0,
                                 top: '25%',
                                 bottom: '25%',
-                                width: 3,
+                                width: 2,
                                 borderRadius: '0 2px 2px 0',
                                 bgcolor: '#818cf8',
                               }
@@ -442,14 +611,14 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                         }}
                       >
                         <ListItemIcon
-                          sx={{ minWidth: 30, color: 'inherit' }}
+                          sx={{ minWidth: 24, color: 'inherit' }}
                         >
-                          <Icon sx={{ fontSize: 18 }} />
+                          <Icon sx={{ fontSize: 15 }} />
                         </ListItemIcon>
                         <ListItemText
                           primary={item.label}
                           primaryTypographyProps={{
-                            fontSize: '0.8125rem',
+                            fontSize: '0.6875rem',
                             fontWeight: active ? 600 : 500,
                           }}
                         />
@@ -463,22 +632,22 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
 
           <Box
             sx={{
-              p: 1.5,
-              mx: 1.5,
-              mb: 1.5,
-              borderRadius: 2,
+              p: 1,
+              mx: 1,
+              mb: 1,
+              borderRadius: 1.5,
               bgcolor: 'rgba(255,255,255,0.03)',
               border: '1px solid rgba(255,255,255,0.04)',
               display: 'flex',
               alignItems: 'center',
-              gap: 1.25,
+              gap: 1,
             }}
           >
             <Avatar
               sx={{
-                width: 30,
-                height: 30,
-                fontSize: '0.65rem',
+                width: 24,
+                height: 24,
+                fontSize: '0.5625rem',
                 fontWeight: 700,
                 bgcolor: alpha('#818cf8', 0.15),
                 color: '#818cf8',
@@ -489,7 +658,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Typography
                 sx={{
-                  fontSize: '0.75rem',
+                  fontSize: '0.625rem',
                   fontWeight: 500,
                   color: '#d4d4d8',
                   overflow: 'hidden',
@@ -505,11 +674,11 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
               onClick={signOut}
               sx={{
                 color: '#52525b',
-                p: 0.5,
+                p: 0.375,
                 '&:hover': { color: '#f87171', bgcolor: alpha('#f87171', 0.1) },
               }}
             >
-              <LogoutRoundedIcon sx={{ fontSize: 15 }} />
+              <LogoutRoundedIcon sx={{ fontSize: 13 }} />
             </IconButton>
           </Box>
         </Drawer>
@@ -518,8 +687,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           component="main"
           sx={{
             flexGrow: 1,
-            p: 4,
-            pt: 3.5,
+            p: 2.5,
+            pt: 2,
             mt: '2px',
             minHeight: '100vh',
             bgcolor: 'background.default',
