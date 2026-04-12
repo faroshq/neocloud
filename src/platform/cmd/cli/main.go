@@ -544,15 +544,24 @@ func newSSHCommand() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "ssh <vm-name>",
+		Use:   "ssh [user@]<vm-name>",
 		Short: "SSH into a virtual machine via the platform proxy",
 		Long: `Opens an interactive SSH session to a VM through the platform's
 WebSocket SSH proxy. Spawns an OpenSSH client using the built-in
 ssh-proxy as the ProxyCommand. Authenticates using a cached OIDC token
-(from 'platform-cli login') or a static bearer token.`,
+(from 'platform-cli login') or a static bearer token.
+
+The argument can be either a VM name or user@vm-name. If a user is
+specified in the argument, it overrides the --user flag.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			vmName := args[0]
+
+			// Parse optional user@vm-name format.
+			if idx := strings.LastIndex(vmName, "@"); idx != -1 {
+				username = vmName[:idx]
+				vmName = vmName[idx+1:]
+			}
 
 			// Find our own binary to use as ProxyCommand.
 			self, err := os.Executable()

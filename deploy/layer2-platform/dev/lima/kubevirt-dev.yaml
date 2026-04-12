@@ -1,11 +1,14 @@
-# Lima VM: x86_64 Ubuntu with k3s + KubeVirt
+# Lima VM: x86_64 Ubuntu with k3s + Kube-OVN + KubeVirt
 #
 # Provides a local workload cluster for Layer 2 development.
 # This replaces Layer 1's bare-metal provisioning with a simple VM.
-# The output is the same: a kubeconfig with KubeVirt ready.
+# The output is the same: a kubeconfig with Kube-OVN CNI and KubeVirt ready.
+#
+# Networking parity with prod: Kube-OVN is the sole CNI (no flannel). See
+# deploy/layer1-infra/dev/kube-ovn/values.yaml for the matching libvirt flow.
 #
 # Usage:
-#   make lima-up         # Create VM + install k3s + KubeVirt
+#   make lima-up         # Create VM + install k3s + Kube-OVN + KubeVirt
 #   make lima-status     # Check VM status
 #   make lima-kubeconfig # Extract kubeconfig
 #   make lima-down       # Delete VM
@@ -17,9 +20,16 @@ images:
   - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
     arch: x86_64
 
-cpus: 4
-memory: 8GiB
+cpus: 6
+memory: 16GiB
 disk: 50GiB
+# Sizing rationale:
+#   - k3s + Kube-OVN control plane (ovn-central, ovs-ovn, kube-ovn-cni,
+#     kube-ovn-controller, kube-ovn-monitor, kube-ovn-pinger) ~= 1 GiB
+#   - KubeVirt control plane (virt-operator/api/controller/handler) ~= 0.8 GiB
+#   - coredns + metrics-server + local-path-provisioner ~= 0.3 GiB
+#   - virt-launcher overhead per VM ~= 200 MiB
+# 16 GiB leaves ~13 GiB for tenant VMs, enough for 2x (2 vCPU / 4 GiB) demo VMs.
 
 # Forward k3s API to host (6443 is often taken by other services)
 portForwards:
@@ -30,33 +40,185 @@ portForwards:
 mounts: []
 
 provision:
+  # ---------------------------------------------------------------------------
+  # 1. Host prep + k3s (no flannel, no network-policy — Kube-OVN takes over)
+  # ---------------------------------------------------------------------------
   - mode: system
     script: |
       #!/bin/bash
       set -euo pipefail
 
-      # Install packages
       apt-get update
       apt-get install -y curl socat jq
 
-      # Install k3s
-      curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable=traefik --write-kubeconfig-mode=644 --tls-san=0.0.0.0 --tls-san=127.0.0.1" sh -
+      # Kube-OVN ships its own userspace OVS (ovsdb-server + ovs-vswitchd) in the
+      # ovs-ovn DaemonSet and bind-mounts /var/run/openvswitch + /etc/openvswitch
+      # from the host. Do NOT install the host openvswitch-switch package — it
+      # would take ownership of those dirs and the pod's ovsdb-server would fail
+      # with "create failed (Permission denied)" on its pid file.
+      #
+      # We only need the kernel module, which is in-tree on Ubuntu 24.04.
+      modprobe openvswitch || true
+      modprobe geneve || true
+      cat >/etc/modules-load.d/kube-ovn.conf <<EOF
+      openvswitch
+      geneve
+      EOF
 
-      # Wait for k3s
-      echo "Waiting for k3s..."
+      # Install k3s without flannel / network-policy.
+      # Kube-proxy is kept (Kube-OVN's replacement mode is not enabled here).
+      #
+      # CIDR choice: we deliberately use the Kube-OVN helm chart's DEFAULT
+      # pod/svc CIDRs (10.16.0.0/16 and 10.96.0.0/16) rather than prod's
+      # (10.245/16 and 10.97/16). The chart exposes these via nested keys
+      # (networking.ipv4.POD_CIDR / SVC_CIDR) that vary by chart version, and
+      # a mismatch between k3s and Kube-OVN produces subtle breakage (e.g.
+      # svc-to-pod traffic not routed by OVN). Dev/prod parity on CIDR
+      # *values* is cosmetic — parity that matters is Vpc/Subnet/NetworkPolicy
+      # manifest behavior, which is independent of the cluster pod/svc CIDR.
+      curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="\
+        --disable=traefik \
+        --flannel-backend=none \
+        --disable-network-policy \
+        --cluster-cidr=10.16.0.0/16 \
+        --service-cidr=10.96.0.0/16 \
+        --cluster-dns=10.96.0.10 \
+        --write-kubeconfig-mode=644 \
+        --tls-san=0.0.0.0 \
+        --tls-san=127.0.0.1" sh -
+
+      # Wait for the API server AND for the Node object to be registered.
+      # Waiting for /readyz alone is racy — block 2 needs `kubectl get nodes`
+      # to return a name, and on k3s the Node can register a beat after the
+      # API becomes reachable. If we don't block here, block 2 runs with an
+      # empty NODE variable, `kubectl label node ""` fails under
+      # `set -euo pipefail`, and Lima silently moves on to block 3.
+      echo "Waiting for k3s API..."
       for i in $(seq 1 60); do
-        if /usr/local/bin/kubectl get nodes 2>/dev/null | grep -q " Ready"; then
-          echo "k3s is Ready"
+        if /usr/local/bin/kubectl get --raw /readyz >/dev/null 2>&1; then
+          echo "k3s API is up"
           break
         fi
         sleep 5
       done
 
-      # Generate external kubeconfig
+      echo "Waiting for Node object to register..."
+      for i in $(seq 1 60); do
+        if [ -n "$(/usr/local/bin/kubectl get nodes -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)" ]; then
+          echo "Node is registered"
+          break
+        fi
+        sleep 2
+      done
+
+  # ---------------------------------------------------------------------------
+  # 2. Kube-OVN CNI (single-replica dev profile, matches prod chart + values)
+  # ---------------------------------------------------------------------------
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+
+      # Loud markers — if block 2 exits early, these delimit where it died
+      # in /var/log/cloud-init-output.log.
+      echo "===== [lima provision] Kube-OVN install: START ====="
+      trap 'rc=$?; echo "===== [lima provision] Kube-OVN install: EXIT $rc =====" >&2; exit $rc' EXIT
+
+      KUBECTL=/usr/local/bin/kubectl
+      export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
+      # Install helm (official get-helm-3 script) if missing.
+      if ! command -v helm >/dev/null 2>&1; then
+        curl -sfL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      fi
+
+      # Defensive — even though block 1 now waits for the Node, re-check
+      # here so the failure mode is clear if this ever regresses.
+      NODE=""
+      for i in $(seq 1 30); do
+        NODE=$($KUBECTL get nodes -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+        if [ -n "$NODE" ]; then break; fi
+        sleep 2
+      done
+      if [ -z "$NODE" ]; then
+        echo "ERROR: no Node registered; aborting Kube-OVN install" >&2
+        exit 1
+      fi
+      echo "Node: $NODE"
+
+      # The chart requires at least one node labeled as ovn-central master.
+      $KUBECTL label node "$NODE" kube-ovn/role=master --overwrite
+
+      helm repo add kube-ovn https://kubeovn.github.io/kube-ovn
+      helm repo update
+
+      # Resolve the tunnel interface explicitly. Kube-OVN's auto-detect does not
+      # work reliably on Lima/QEMU (ovn-controller logs "Need to specify an
+      # encap type and ip" and no chassis registers). We derive it from the
+      # node's InternalIP so it stays correct regardless of NIC naming
+      # (eth0 / ens3 / enp0s1).
+      #
+      # On Lima the Node has TWO InternalIPs — IPv4 and IPv6 (ULA fec0::/10).
+      # The jsonpath with a filter returns both separated by a space, which
+      # then fails to match any interface prefix. Emit one per line and
+      # pick the IPv4 address explicitly.
+      NODE_IP=$($KUBECTL get node "$NODE" -o jsonpath='{range .status.addresses[?(@.type=="InternalIP")]}{.address}{"\n"}{end}' \
+        | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' \
+        | head -n1)
+      if [ -z "$NODE_IP" ]; then
+        echo "ERROR: no IPv4 InternalIP on node $NODE" >&2
+        $KUBECTL get node "$NODE" -o yaml >&2
+        exit 1
+      fi
+      IFACE=$(ip -o -4 addr show | awk -v ip="$NODE_IP" '$4 ~ "^"ip"/" {print $2; exit}')
+      if [ -z "$IFACE" ]; then
+        echo "ERROR: could not resolve tunnel interface for node IP $NODE_IP" >&2
+        ip -o -4 addr show >&2
+        exit 1
+      fi
+      echo "Using tunnel interface: $IFACE (node IP $NODE_IP)"
+
+      # Use the chart's default pod/svc CIDRs (10.16.0.0/16 / 10.96.0.0/16) —
+      # k3s is configured above to match. Do NOT try to override POD_CIDR /
+      # SVC_CIDR here; the key path varies across chart versions and silent
+      # no-ops are the usual result.
+      helm upgrade --install kube-ovn kube-ovn/kube-ovn \
+        --namespace kube-system \
+        --set replicaCount=1 \
+        --set IFACE="$IFACE" \
+        --set ENABLE_LB=true \
+        --set ENABLE_NP=true
+
+      # Wait for helm to have created each workload before asking for its
+      # rollout status (rollout status fails immediately on "not found").
+      echo "Waiting for Kube-OVN workloads to be created..."
+      for res in ds/ovs-ovn ds/kube-ovn-cni deploy/kube-ovn-controller deploy/ovn-central; do
+        for i in $(seq 1 60); do
+          if $KUBECTL -n kube-system get "$res" >/dev/null 2>&1; then break; fi
+          sleep 2
+        done
+      done
+
+      # Strict rollout waits — if any of these fail, block 3 (KubeVirt) must
+      # NOT run, because it will just stack Pending pods on a NotReady node.
+      echo "Waiting for Kube-OVN components to become Ready..."
+      $KUBECTL -n kube-system rollout status ds/ovs-ovn --timeout=900s
+      $KUBECTL -n kube-system rollout status ds/kube-ovn-cni --timeout=900s
+      $KUBECTL -n kube-system rollout status deploy/ovn-central --timeout=900s
+      $KUBECTL -n kube-system rollout status deploy/kube-ovn-controller --timeout=900s
+
+      echo "Waiting for node Ready..."
+      $KUBECTL wait --for=condition=Ready node --all --timeout=600s
+      echo "Node is Ready, CNI is up."
+
+      # External kubeconfig (rewritten for the host port-forward).
       cp /etc/rancher/k3s/k3s.yaml /root/kubeconfig-external
       sed -i "s|127.0.0.1:6443|127.0.0.1:16443|g" /root/kubeconfig-external
       chmod 644 /root/kubeconfig-external
 
+  # ---------------------------------------------------------------------------
+  # 3. KubeVirt (software emulation for dev)
+  # ---------------------------------------------------------------------------
   - mode: system
     script: |
       #!/bin/bash
@@ -64,6 +226,12 @@ provision:
 
       KUBEVIRT_VERSION=v1.8.1
       KUBECTL=/usr/local/bin/kubectl
+
+      # Guard: KubeVirt must land on a Ready node with a working CNI. If
+      # block 2 silently skipped Kube-OVN, virt-operator would sit Pending
+      # forever. Fail loudly instead.
+      echo "Verifying node is Ready before installing KubeVirt..."
+      $KUBECTL wait --for=condition=Ready node --all --timeout=300s
 
       echo "Installing KubeVirt ${KUBEVIRT_VERSION} operator..."
       $KUBECTL create namespace kubevirt --dry-run=client -o yaml | $KUBECTL apply -f -

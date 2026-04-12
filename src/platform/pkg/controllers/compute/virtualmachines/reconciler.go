@@ -62,11 +62,26 @@ var (
 // defaultContainerDiskImage is used when the PublicImage for the VM's disk image cannot be found.
 const defaultContainerDiskImage = "quay.io/containerdisks/ubuntu:22.04"
 
-// defaultNamespace is the namespace where KubeVirt VMs are created on the workload cluster.
-const defaultNamespace = "default"
+// workloadNamespacePrefix is prepended to the kcp logical cluster name to form the
+// namespace on the workload cluster where tenant resources are created. This gives
+// each tenant workspace its own isolated namespace on the workload cluster instead
+// of sharing the "default" namespace.
+const workloadNamespacePrefix = "tenant-"
+
+// namespaceGVR identifies the core Namespace resource on the workload cluster.
+var namespaceGVR = schema.GroupVersionResource{
+	Version:  "v1",
+	Resource: "namespaces",
+}
 
 // finalizerName is the finalizer added to platform VMs to ensure KubeVirt cleanup.
 const finalizerName = "compute.cloud.platform/kubevirt-cleanup"
+
+// workloadNamespaceFor returns the per-tenant workload-cluster namespace name
+// corresponding to the given kcp logical cluster.
+func workloadNamespaceFor(clusterName string) string {
+	return workloadNamespacePrefix + clusterName
+}
 
 // Reconciler reconciles VirtualMachine resources.
 type Reconciler struct {
@@ -121,9 +136,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req mcreconcile.Request) (ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// workloadNS is the per-tenant namespace on the workload cluster that holds
+	// all KubeVirt objects belonging to this kcp logical cluster.
+	workloadNS := workloadNamespaceFor(req.ClusterName)
+
 	// Handle deletion.
 	if vm.DeletionTimestamp != nil {
-		return r.handleDeletion(ctx, c, &vm, logger)
+		return r.handleDeletion(ctx, c, &vm, workloadNS, logger)
 	}
 
 	// Ensure finalizer is present so we can clean up KubeVirt resources on deletion.
@@ -136,31 +155,63 @@ func (r *Reconciler) Reconcile(ctx context.Context, req mcreconcile.Request) (ct
 
 	switch vm.Status.Phase {
 	case "", computev1alpha1.VirtualMachinePending:
-		return r.handlePending(ctx, c, &vm, logger)
+		return r.handlePending(ctx, c, &vm, workloadNS, logger)
 	case computev1alpha1.VirtualMachineProvisioning:
-		return r.handleProvisioning(ctx, c, &vm, logger)
+		return r.handleProvisioning(ctx, c, &vm, workloadNS, logger)
 	case computev1alpha1.VirtualMachineRunning:
-		return r.handleRunning(ctx, c, &vm, logger)
+		return r.handleRunning(ctx, c, &vm, workloadNS, logger)
 	case computev1alpha1.VirtualMachineFailed:
-		return r.handleFailed(ctx, c, &vm, logger)
+		return r.handleFailed(ctx, c, &vm, workloadNS, logger)
 	default:
 		logger.Info("VM in terminal state", "phase", vm.Status.Phase)
 		return ctrl.Result{}, nil
 	}
 }
 
+// ensureWorkloadNamespace creates the per-tenant namespace on the workload
+// cluster if it does not already exist. Called from handlePending before the
+// first KubeVirt object is created for a tenant.
+func (r *Reconciler) ensureWorkloadNamespace(ctx context.Context, name string) error {
+	if r.workloadClient == nil {
+		return nil
+	}
+	_, err := r.workloadClient.Resource(namespaceGVR).Get(ctx, name, metav1.GetOptions{})
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("checking workload namespace %q: %w", name, err)
+	}
+	ns := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "Namespace",
+			"metadata": map[string]interface{}{
+				"name": name,
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/managed-by": "neocloud-platform",
+				},
+			},
+		},
+	}
+	if _, err := r.workloadClient.Resource(namespaceGVR).Create(ctx, ns, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("creating workload namespace %q: %w", name, err)
+	}
+	return nil
+}
+
 // handleFailed is a terminal state — the VM stays Failed until the user deletes and recreates it.
 // We only clean up the KubeVirt VM on the workload cluster to release resources.
-func (r *Reconciler) handleFailed(ctx context.Context, c client.Client, vm *computev1alpha1.VirtualMachine, logger klog.Logger) (ctrl.Result, error) {
+func (r *Reconciler) handleFailed(ctx context.Context, c client.Client, vm *computev1alpha1.VirtualMachine, workloadNS string, logger klog.Logger) (ctrl.Result, error) {
 	kvName := kubevirtVMName(vm)
 	logger.Info("VM in Failed state", "kubevirtName", kvName, "message", vm.Status.Message)
 
 	// Clean up any KubeVirt VM on the workload cluster to release resources.
 	if r.workloadClient != nil {
-		_, err := r.workloadClient.Resource(kubevirtVMGVR).Namespace(defaultNamespace).Get(ctx, kvName, metav1.GetOptions{})
+		_, err := r.workloadClient.Resource(kubevirtVMGVR).Namespace(workloadNS).Get(ctx, kvName, metav1.GetOptions{})
 		if err == nil {
 			logger.Info("Cleaning up KubeVirt VM for failed platform VM", "kubevirtName", kvName)
-			_ = r.workloadClient.Resource(kubevirtVMGVR).Namespace(defaultNamespace).Delete(ctx, kvName, metav1.DeleteOptions{})
+			_ = r.workloadClient.Resource(kubevirtVMGVR).Namespace(workloadNS).Delete(ctx, kvName, metav1.DeleteOptions{})
 		}
 	}
 
@@ -170,7 +221,7 @@ func (r *Reconciler) handleFailed(ctx context.Context, c client.Client, vm *comp
 
 // handleDeletion cleans up the KubeVirt VM on the workload cluster and removes the finalizer.
 // It waits for the KubeVirt VM to be fully gone before removing the finalizer.
-func (r *Reconciler) handleDeletion(ctx context.Context, c client.Client, vm *computev1alpha1.VirtualMachine, logger klog.Logger) (ctrl.Result, error) {
+func (r *Reconciler) handleDeletion(ctx context.Context, c client.Client, vm *computev1alpha1.VirtualMachine, workloadNS string, logger klog.Logger) (ctrl.Result, error) {
 	if !controllerutil.ContainsFinalizer(vm, finalizerName) {
 		return ctrl.Result{}, nil
 	}
@@ -180,10 +231,10 @@ func (r *Reconciler) handleDeletion(ctx context.Context, c client.Client, vm *co
 
 	if r.workloadClient != nil {
 		// Check if the KubeVirt VM still exists.
-		_, err := r.workloadClient.Resource(kubevirtVMGVR).Namespace(defaultNamespace).Get(ctx, kvName, metav1.GetOptions{})
+		_, err := r.workloadClient.Resource(kubevirtVMGVR).Namespace(workloadNS).Get(ctx, kvName, metav1.GetOptions{})
 		if err == nil {
 			// VM still exists — issue a delete and requeue to wait for it to be gone.
-			delErr := r.workloadClient.Resource(kubevirtVMGVR).Namespace(defaultNamespace).Delete(ctx, kvName, metav1.DeleteOptions{})
+			delErr := r.workloadClient.Resource(kubevirtVMGVR).Namespace(workloadNS).Delete(ctx, kvName, metav1.DeleteOptions{})
 			if delErr != nil && !apierrors.IsNotFound(delErr) {
 				logger.Error(delErr, "Failed to delete KubeVirt VM")
 			}
@@ -229,10 +280,16 @@ func (r *Reconciler) handleDeletion(ctx context.Context, c client.Client, vm *co
 }
 
 // handlePending creates the KubeVirt VM on the workload cluster and transitions to Provisioning.
-func (r *Reconciler) handlePending(ctx context.Context, c client.Client, vm *computev1alpha1.VirtualMachine, logger klog.Logger) (ctrl.Result, error) {
+func (r *Reconciler) handlePending(ctx context.Context, c client.Client, vm *computev1alpha1.VirtualMachine, workloadNS string, logger klog.Logger) (ctrl.Result, error) {
 	kvName := kubevirtVMName(vm)
 
 	if r.workloadClient != nil {
+		// Ensure the per-tenant namespace exists on the workload cluster.
+		if err := r.ensureWorkloadNamespace(ctx, workloadNS); err != nil {
+			logger.Error(err, "Failed to ensure workload namespace", "namespace", workloadNS)
+			return ctrl.Result{}, err
+		}
+
 		// Resolve root password if EnableRootLogin is set.
 		if err := resolveRootPassword(ctx, c, vm, logger); err != nil {
 			logger.Error(err, "Failed to resolve root password")
@@ -256,10 +313,10 @@ func (r *Reconciler) handlePending(ctx context.Context, c client.Client, vm *com
 		containerDiskImage := resolveContainerDiskImage(ctx, c, vm.Spec.Disk.Image)
 
 		// Build and create the KubeVirt VirtualMachine on the workload cluster.
-		kvVM := buildKubeVirtVM(kvName, vm, containerDiskImage, userData)
-		logger.Info("Creating KubeVirt VM on workload cluster", "kubevirtName", kvName)
+		kvVM := buildKubeVirtVM(kvName, workloadNS, vm, containerDiskImage, userData)
+		logger.Info("Creating KubeVirt VM on workload cluster", "kubevirtName", kvName, "namespace", workloadNS)
 
-		_, err = r.workloadClient.Resource(kubevirtVMGVR).Namespace(defaultNamespace).Create(ctx, kvVM, metav1.CreateOptions{})
+		_, err = r.workloadClient.Resource(kubevirtVMGVR).Namespace(workloadNS).Create(ctx, kvVM, metav1.CreateOptions{})
 		if err != nil {
 			logger.Error(err, "Failed to create KubeVirt VM")
 			vm.Status.Phase = computev1alpha1.VirtualMachineFailed
@@ -303,7 +360,7 @@ func (r *Reconciler) isProvisioningTimedOut(vm *computev1alpha1.VirtualMachine) 
 }
 
 // handleProvisioning checks whether the KubeVirt VMI is running and transitions to Running.
-func (r *Reconciler) handleProvisioning(ctx context.Context, c client.Client, vm *computev1alpha1.VirtualMachine, logger klog.Logger) (ctrl.Result, error) {
+func (r *Reconciler) handleProvisioning(ctx context.Context, c client.Client, vm *computev1alpha1.VirtualMachine, workloadNS string, logger klog.Logger) (ctrl.Result, error) {
 	kvName := kubevirtVMName(vm)
 
 	// Check if provisioning has been stuck too long.
@@ -329,7 +386,7 @@ func (r *Reconciler) handleProvisioning(ctx context.Context, c client.Client, vm
 
 	if r.workloadClient != nil {
 		// Check if the KubeVirt VM itself still exists on the workload cluster.
-		kvVM, err := r.workloadClient.Resource(kubevirtVMGVR).Namespace(defaultNamespace).Get(ctx, kvName, metav1.GetOptions{})
+		kvVM, err := r.workloadClient.Resource(kubevirtVMGVR).Namespace(workloadNS).Get(ctx, kvName, metav1.GetOptions{})
 		if apierrors.IsNotFound(err) {
 			logger.Info("KubeVirt VM disappeared during provisioning, marking as Failed", "kubevirtName", kvName)
 			vm.Status.Phase = computev1alpha1.VirtualMachineFailed
@@ -398,7 +455,7 @@ func (r *Reconciler) handleProvisioning(ctx context.Context, c client.Client, vm
 		// If KubeVirt VM is not ready yet, check VMI status.
 		if !kvReady {
 			// Check VMI status on the workload cluster.
-			vmi, err := r.workloadClient.Resource(kubevirtVMIGVR).Namespace(defaultNamespace).Get(ctx, kvName, metav1.GetOptions{})
+			vmi, err := r.workloadClient.Resource(kubevirtVMIGVR).Namespace(workloadNS).Get(ctx, kvName, metav1.GetOptions{})
 			if err != nil {
 				logger.Info("VMI not ready yet, requeueing", "error", err)
 				return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
@@ -413,7 +470,7 @@ func (r *Reconciler) handleProvisioning(ctx context.Context, c client.Client, vm
 		}
 
 		// VM is ready or VMI is running — extract IP from VMI.
-		vmi, err := r.workloadClient.Resource(kubevirtVMIGVR).Namespace(defaultNamespace).Get(ctx, kvName, metav1.GetOptions{})
+		vmi, err := r.workloadClient.Resource(kubevirtVMIGVR).Namespace(workloadNS).Get(ctx, kvName, metav1.GetOptions{})
 		if err != nil {
 			logger.Info("VMI not found despite VM being ready, requeueing", "error", err)
 			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
@@ -470,7 +527,7 @@ func (r *Reconciler) handleProvisioning(ctx context.Context, c client.Client, vm
 }
 
 // handleRunning periodically syncs the VM status from the workload cluster.
-func (r *Reconciler) handleRunning(ctx context.Context, c client.Client, vm *computev1alpha1.VirtualMachine, logger klog.Logger) (ctrl.Result, error) {
+func (r *Reconciler) handleRunning(ctx context.Context, c client.Client, vm *computev1alpha1.VirtualMachine, workloadNS string, logger klog.Logger) (ctrl.Result, error) {
 	if r.workloadClient == nil {
 		return ctrl.Result{}, nil
 	}
@@ -478,7 +535,7 @@ func (r *Reconciler) handleRunning(ctx context.Context, c client.Client, vm *com
 	kvName := kubevirtVMName(vm)
 
 	// Check KubeVirt VM status for errors (e.g. crash, eviction).
-	kvVM, err := r.workloadClient.Resource(kubevirtVMGVR).Namespace(defaultNamespace).Get(ctx, kvName, metav1.GetOptions{})
+	kvVM, err := r.workloadClient.Resource(kubevirtVMGVR).Namespace(workloadNS).Get(ctx, kvName, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		logger.Info("KubeVirt VM disappeared, marking as Failed", "kubevirtName", kvName)
 		vm.Status.Phase = computev1alpha1.VirtualMachineFailed
@@ -527,7 +584,7 @@ func (r *Reconciler) handleRunning(ctx context.Context, c client.Client, vm *com
 	}
 
 	// Check VMI for IP and running status.
-	vmi, err := r.workloadClient.Resource(kubevirtVMIGVR).Namespace(defaultNamespace).Get(ctx, kvName, metav1.GetOptions{})
+	vmi, err := r.workloadClient.Resource(kubevirtVMIGVR).Namespace(workloadNS).Get(ctx, kvName, metav1.GetOptions{})
 	if err != nil {
 		logger.Info("VMI not found for running VM, may have been stopped", "error", err)
 		vm.Status.Phase = computev1alpha1.VirtualMachineFailed
@@ -850,7 +907,7 @@ func resolveContainerDiskImage(ctx context.Context, c client.Client, imageName s
 }
 
 // buildKubeVirtVM constructs an unstructured KubeVirt VirtualMachine object.
-func buildKubeVirtVM(name string, vm *computev1alpha1.VirtualMachine, containerDiskImage, userData string) *unstructured.Unstructured {
+func buildKubeVirtVM(name, namespace string, vm *computev1alpha1.VirtualMachine, containerDiskImage, userData string) *unstructured.Unstructured {
 
 	// Build volumes list.
 	volumes := []interface{}{
@@ -920,7 +977,7 @@ func buildKubeVirtVM(name string, vm *computev1alpha1.VirtualMachine, containerD
 			"kind":       "VirtualMachine",
 			"metadata": map[string]interface{}{
 				"name":      name,
-				"namespace": defaultNamespace,
+				"namespace": namespace,
 				"labels": map[string]interface{}{
 					"app.kubernetes.io/managed-by": "neocloud-platform",
 					"platform.neocloud.dev/vm-uid": string(vm.UID),

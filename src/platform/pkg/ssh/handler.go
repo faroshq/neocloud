@@ -45,11 +45,19 @@ import (
 	kcputil "github.com/faroshq/kcp-ref-arch/project/platform/pkg/kcp"
 )
 
+const workloadNamespacePrefix = "tenant-"
+
 var (
 	vmGVR = schema.GroupVersionResource{
 		Group:    "compute.cloud.platform",
 		Version:  "v1alpha1",
 		Resource: "virtualmachines",
+	}
+
+	logicalClusterGVR = schema.GroupVersionResource{
+		Group:    "core.kcp.io",
+		Version:  "v1alpha1",
+		Resource: "logicalclusters",
 	}
 )
 
@@ -105,6 +113,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// SSH clients send "user@host" — strip the SSH username prefix if present.
+	if idx := strings.LastIndex(vmName, "@"); idx != -1 {
+		vmName = vmName[idx+1:]
+	}
+
 	// Authenticate.
 	username, err := h.authenticate(r)
 	if err != nil {
@@ -116,7 +129,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.logger.Info("SSH proxy request", "user", username, "vm", vmName)
 
 	// Look up the VM in the user's workspace.
-	vm, err := h.lookupVM(r.Context(), username, vmName)
+	vm, workloadNS, err := h.lookupVM(r.Context(), username, vmName)
 	if err != nil {
 		h.logger.Error(err, "VM lookup failed", "user", username, "vm", vmName)
 		writeError(w, http.StatusNotFound, fmt.Sprintf("VM %q not found or not accessible", vmName))
@@ -139,7 +152,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	kvVMName := fmt.Sprintf("platform-%s", strings.ToLower(uid[:8]))
 
 	// Dial the VM's SSH port via WebSocket portforward through the workload cluster API server.
-	vmWS, err := h.dialVMPortforward(kvVMName, 22)
+	vmWS, err := h.dialVMPortforward(kvVMName, workloadNS, 22)
 	if err != nil {
 		h.logger.Error(err, "Failed to connect to VM via portforward", "kubevirtVM", kvVMName)
 		writeError(w, http.StatusBadGateway, "failed to connect to VM SSH port")
@@ -163,7 +176,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // dialVMPortforward connects to a KubeVirt VM's SSH port via WebSocket portforward
 // through the workload cluster's API server.
-func (h *Handler) dialVMPortforward(kvVMName string, port int) (*websocket.Conn, error) {
+func (h *Handler) dialVMPortforward(kvVMName string, namespace string, port int) (*websocket.Conn, error) {
 	hostURL, err := url.Parse(h.workloadConfig.Host)
 	if err != nil {
 		return nil, fmt.Errorf("parsing workload host URL: %w", err)
@@ -180,8 +193,8 @@ func (h *Handler) dialVMPortforward(kvVMName string, port int) (*websocket.Conn,
 	pfURL := url.URL{
 		Scheme: wsScheme,
 		Host:   hostURL.Host,
-		Path: fmt.Sprintf("/apis/subresources.kubevirt.io/v1/namespaces/default/virtualmachineinstances/%s/portforward/%d/tcp",
-			kvVMName, port),
+		Path: fmt.Sprintf("/apis/subresources.kubevirt.io/v1/namespaces/%s/virtualmachineinstances/%s/portforward/%d/tcp",
+			namespace, kvVMName, port),
 	}
 
 	// Build TLS config with client certs from the workload rest.Config.
@@ -315,8 +328,9 @@ func workspaceNameForUser(username string) string {
 	return "u-" + hex.EncodeToString(h[:])[:10]
 }
 
-// lookupVM finds a VirtualMachine by name in the user's kcp workspace.
-func (h *Handler) lookupVM(ctx context.Context, username, vmName string) (*unstructured.Unstructured, error) {
+// lookupVM finds a VirtualMachine by name in the user's kcp workspace and returns
+// the VM along with the workload namespace where the KubeVirt VM lives.
+func (h *Handler) lookupVM(ctx context.Context, username, vmName string) (*unstructured.Unstructured, string, error) {
 	wsName := workspaceNameForUser(username)
 	clusterPath := "root:platform:tenants:" + wsName
 
@@ -326,16 +340,30 @@ func (h *Handler) lookupVM(ctx context.Context, username, vmName string) (*unstr
 
 	client, err := dynamic.NewForConfig(scopedConfig)
 	if err != nil {
-		return nil, fmt.Errorf("creating workspace client: %w", err)
+		return nil, "", fmt.Errorf("creating workspace client: %w", err)
 	}
 
 	// VirtualMachine is cluster-scoped, so we use an empty namespace.
 	vm, err := client.Resource(vmGVR).Get(ctx, vmName, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("getting VM %q in workspace %s: %w", vmName, clusterPath, err)
+		return nil, "", fmt.Errorf("getting VM %q in workspace %s: %w", vmName, clusterPath, err)
 	}
 
-	return vm, nil
+	// Resolve the logical cluster name to derive the workload namespace.
+	lc, err := client.Resource(logicalClusterGVR).Get(ctx, "cluster", metav1.GetOptions{})
+	if err != nil {
+		return nil, "", fmt.Errorf("getting LogicalCluster in %s: %w", clusterPath, err)
+	}
+	lcName := lc.GetName()
+	clusterURL, _, _ := unstructured.NestedString(lc.Object, "status", "URL")
+	if clusterURL != "" {
+		if idx := strings.LastIndex(clusterURL, "/clusters/"); idx != -1 {
+			lcName = clusterURL[idx+len("/clusters/"):]
+		}
+	}
+
+	workloadNS := workloadNamespacePrefix + lcName
+	return vm, workloadNS, nil
 }
 
 func extractToken(r *http.Request) string {

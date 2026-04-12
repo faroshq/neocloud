@@ -182,4 +182,4 @@ Layer 1 produces a **kubeconfig** for a Kubernetes cluster with KubeVirt install
 | Cluster API | CAPI + Metal3 (same) | CAPI + Metal3 (same) |
 | BareMetalHost | Same CRs | Same CRs |
 | KubeVirt | Software emulation | KVM + VFIO |
-| Networking | Linux bridges | Kube-OVN |
+| Networking | Kube-OVN (single replica) | Kube-OVN (HA) |
